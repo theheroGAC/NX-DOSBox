@@ -137,6 +137,19 @@ bool getSwapRequest(void) {
 	return sreq;
 }
 
+/* Whether the guest's media change request inserts the next image of the set by
+ * itself, and how many times that has happened: a request is answered from the
+ * drive's disk list, and the counter is the guard against a guest that asks
+ * without ever reading (which would walk the set for ever). */
+static bool auto_disk_swap = false;
+static Bit32u auto_disk_swap_count[2] = { 0, 0 };
+#define AUTO_DISK_SWAP_LIMIT 200
+
+void BIOS_SetAutoDiskSwap(bool enabled) {
+	auto_disk_swap = enabled;
+	auto_disk_swap_count[0] = auto_disk_swap_count[1] = 0;
+}
+
 void swapInNextDisk(bool pressed) {
 	if (!pressed)
 		return;
@@ -551,6 +564,51 @@ static Bitu INT13_DiskHandler(void) {
 			}
 		}
 		break;
+	case 0x16: /* Detect media change since the last call */
+		/* DOS asks this as soon as it sees a floppy drive, and an installer
+		 * uses it to decide that it has to ask for the next disk. There was no
+		 * answer for it here at all, which is why a game mounted as a set of
+		 * images stopped at "Insert disk 2" with nothing the player could do:
+		 * the rest of the set was behind the drive's disk list and nothing ever
+		 * moved it along.
+		 *
+		 * With more than one image in the list this is where the next one goes
+		 * in. The guest is told the medium changed, which is exactly what it
+		 * would have been told by a person swapping a floppy, and it reads on -
+		 * now from the next image. A front end turns it on (the launcher does
+		 * for a game it mounted as a whole set) and the counter stops a guest
+		 * that asks the question in a loop from walking the set for ever. */
+		if (auto_disk_swap && drivenum < 2 &&
+		    DriveManager::DiskCount(drivenum) > 1 &&
+		    auto_disk_swap_count[drivenum] < AUTO_DISK_SWAP_LIMIT) {
+			DriveManager::CycleDisks(drivenum, false);
+			/* The cache belongs to the image that just left the drive. */
+			if (Drives[drivenum]) Drives[drivenum]->EmptyCache();
+			auto_disk_swap_count[drivenum]++;
+			LOG_MSG("INT13: drive %c: inserted the next image (%d of a set of %d)",
+			        'A' + drivenum, auto_disk_swap_count[drivenum] + 1,
+			        DriveManager::DiskCount(drivenum));
+			/* LOG_MSG goes to the debug channel, which on a console nobody
+			 * reads. The same event also goes to the trace file on the card: an
+			 * automatic disk change under a program that is halfway through an
+			 * install is exactly the kind of thing a frozen screen has to be read
+			 * against afterwards, and whether it happened at all is the first
+			 * question the trace should answer. */
+			{
+				extern void SwitchPlatform_Trace(const char *step);
+				char trace[128];
+				snprintf(trace, sizeof(trace), "INT13: %c: image %d of %d inserted",
+				         'A' + drivenum, auto_disk_swap_count[drivenum] + 1,
+				         DriveManager::DiskCount(drivenum));
+				SwitchPlatform_Trace(trace);
+			}
+			reg_ah = 0x06;   /* the medium changed */
+			CALLBACK_SCF(false);
+			break;
+		}
+		reg_ah = 0x00;   /* no change since the last call */
+		CALLBACK_SCF(false);
+		break;
 	case 0x17: /* Set disk type for format */
 		/* Pirates! needs this to load */
 		killRead = true;
@@ -602,4 +660,6 @@ void BIOS_SetupDisks(void) {
 	MAPPER_AddHandler(swapInNextDisk,MK_f4,MMOD1,"swapimg","Swap Image");
 	killRead = false;
 	swapping_requested = false;
+	auto_disk_swap = false;
+	auto_disk_swap_count[0] = auto_disk_swap_count[1] = 0;
 }

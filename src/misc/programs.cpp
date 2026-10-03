@@ -52,6 +52,14 @@ static Bit8u exe_block[]={
 #define CB_POS 12
 
 static std::vector<PROGRAMS_Main*> internal_progs;
+/* The names of the entries of internal_progs, in the same order. A console front
+ * end starts the machine again in the same process for every game the launcher
+ * picks, so PROGRAMS_Init() runs once per session: without this list the table
+ * grew by one entry per internal program and every session, and the machine
+ * eventually stopped with "program size too large". The virtual file also
+ * carries the index of its slot, so a name that is registered again has to keep
+ * its old slot instead of getting a second copy of the file. */
+static std::vector<std::string> internal_prog_names;
 
 void PROGRAMS_MakeFile(char const * const name,PROGRAMS_Main * main) {
 	Bit8u * comdata=(Bit8u *)malloc(32); //MEM LEAK
@@ -60,12 +68,22 @@ void PROGRAMS_MakeFile(char const * const name,PROGRAMS_Main * main) {
 	comdata[CB_POS+1]=(Bit8u)((call_program>>8)&0xff);
 
 	/* Copy save the pointer in the vector and save it's index */
-	if (internal_progs.size()>255) E_Exit("PROGRAMS_MakeFile program size too large (%d)",static_cast<int>(internal_progs.size()));
-	Bit8u index = (Bit8u)internal_progs.size();
-	internal_progs.push_back(main);
+	size_t index = 0;
+	while (index < internal_prog_names.size() && internal_prog_names[index] != name) index++;
+	if (index == internal_prog_names.size()) {
+		if (internal_progs.size()>255) E_Exit("PROGRAMS_MakeFile program size too large (%d)",static_cast<int>(internal_progs.size()));
+		internal_prog_names.push_back(name);
+		internal_progs.push_back(main);
+	} else {
+		/* Same name as an earlier session: keep the slot, replace the handler and
+		 * drop the old virtual file, which still points at the old index. */
+		internal_progs[index] = main;
+		VFILE_Remove(name);
+	}
+	const Bit8u slot = (Bit8u)index;
 
-	memcpy(&comdata[sizeof(exe_block)],&index,sizeof(index));
-	Bit32u size=sizeof(exe_block)+sizeof(index);	
+	memcpy(&comdata[sizeof(exe_block)],&slot,sizeof(slot));
+	Bit32u size=sizeof(exe_block)+sizeof(slot);	
 	VFILE_Register(name,comdata,size);	
 }
 

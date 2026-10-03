@@ -528,9 +528,16 @@ void TIMER_DelTickHandler(TIMER_TickHandler handler) {
 		tick_where=&ticker->next;
 		ticker=ticker->next;
 	}
+}/* A console front end starts the machine again in the same process for every game the launcher picks, and the tick handler list is a process wide one that nothing else empties: the handler the previous session registered (the mixer's above all) keeps being called every tick of the next one. Two calls to MIXER_Mix in one tick do not mix twice as fast, they mix `needed` samples and then add a tick again, so mixer.needed grows without bound and a session that has sound eventually spends all of its time in the mixer. Dropping the dead machine's handlers between sessions is what keeps "play, go back, play another game" working. */
+void TIMER_ClearTickHandlers(void) {
+	while (firstticker) {
+		TickerBlock *next = firstticker->next;
+		delete firstticker;
+		firstticker = next;
+	}
 }
 
-void TIMER_AddTickHandler(TIMER_TickHandler handler) {
+void TIMER_AddTickHandler(TIMER_TickHandler handler) {
 	TickerBlock * newticker=new TickerBlock;
 	newticker->next=firstticker;
 	newticker->handler=handler;

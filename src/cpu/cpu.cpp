@@ -30,9 +30,10 @@
 #include "paging.h"
 #include "lazyflags.h"
 #include "support.h"
+#include "platform.h"
+#include "savestate.h"
 
 Bitu DEBUG_EnableDebugger(void);
-extern void GFX_SetTitle(Bit32s cycles ,int frameskip,bool paused);
 
 #if 1
 #undef LOG
@@ -1576,13 +1577,13 @@ void CPU_SET_CRX(Bitu cr,Bitu value) {
 					CPU_CycleLeft=0;
 					CPU_Cycles=0;
 					CPU_OldCycleMax=CPU_CycleMax;
-					GFX_SetTitle(CPU_CyclePercUsed,-1,false);
+					Platform_UpdateStatus(CPU_CyclePercUsed,-1,false);
 					if(!printed_cycles_auto_info) {
 						printed_cycles_auto_info = true;
 						LOG_MSG("DOSBox has switched to max cycles, because of the setting: cycles=auto.\nIf the game runs too fast, try a fixed cycles amount in DOSBox's options.");
 					}
 				} else {
-					GFX_SetTitle(-1,-1,false);
+					Platform_UpdateStatus(-1,-1,false);
 				}
 #if (C_DYNAMIC_X86)
 				if (CPU_AutoDetermineMode&CPU_AUTODETERMINE_CORE) {
@@ -2066,6 +2067,108 @@ void CPU_HLT(Bitu oldeip) {
 	cpudecoder=&HLT_Decode;
 }
 
+/* ------------------------------------------------------------- save state */
+
+bool CPU_IsHalted(void) {
+	return cpudecoder == &HLT_Decode;
+}
+
+void CPU_SetHalted(bool halted) {
+	if (halted) {
+		/* The same wait CPU_HLT enters: HLT_Decode leaves it as soon as the
+		 * interrupt it is waiting for moves the program counter, which is why the
+		 * address it parked at and the decoder to return to have to be filled in
+		 * here as well. */
+		if (cpudecoder != &HLT_Decode) cpu.hlt.old_decoder = cpudecoder;
+		cpu.hlt.cs = SegValue(cs);
+		cpu.hlt.eip = reg_eip;
+		cpudecoder = &HLT_Decode;
+	} else if (cpudecoder == &HLT_Decode) {
+		cpudecoder = &CPU_Core_Normal_Run;
+	}
+}
+
+/* The processor: its registers, the descriptor tables, the cycle accounting and
+ * whether it was sitting in a HLT wait.
+ *
+ * The compact flag form in lflags is deliberately not part of the state. It only
+ * means something next to the instruction that produced it, so the flags are
+ * resolved before the snapshot is taken and forgotten after it is restored,
+ * which is exactly what FillFlags does at the end of an operation. */
+static void SaveState_CPU(SaveState &state) {
+	if (state.Saving()) FillFlags();
+
+	for (Bitu i = 0; i < 8; i++) state.Num(cpu_regs.regs[i].dword[DW_INDEX]);
+	state.Num(cpu_regs.ip.dword[DW_INDEX]);
+	state.Num(cpu_regs.flags);
+	for (Bitu i = 0; i < 8; i++) {
+		state.Num(Segs.val[i]);
+		state.Num(Segs.phys[i]);
+	}
+
+	state.Num(cpu.cpl);
+	state.Num(cpu.mpl);
+	state.Num(cpu.cr0);
+	state.Bool(cpu.pmode);
+	state.Num(cpu.stack.mask);
+	state.Num(cpu.stack.notmask);
+	state.Bool(cpu.stack.big);
+	state.Bool(cpu.code.big);
+	state.Num(cpu.exception.which);
+	state.Num(cpu.exception.error);
+	state.Num(cpu.direction);
+	state.Bool(cpu.trap_skip);
+	for (Bitu i = 0; i < 8; i++) {
+		state.Num(cpu.drx[i]);
+		state.Num(cpu.trx[i]);
+	}
+
+	/* The tables go back in through the same helpers the emulated software uses,
+	 * so the LDT bases are derived from the descriptors that the restored GDT
+	 * holds instead of being copied around as numbers.
+	 *
+	 * The address of the GDT block doubles as the one place where the order of
+	 * the records matters: this one reads the GDT out of emulated memory, so the
+	 * memory record has to have been applied first. */
+	Bit64u gdt_base = (Bit64u)CPU_SGDT_base();
+	Bit64u gdt_limit = (Bit64u)CPU_SGDT_limit();
+	Bit64u idt_base = (Bit64u)CPU_SIDT_base();
+	Bit64u idt_limit = (Bit64u)CPU_SIDT_limit();
+	Bit64u ldt_selector = (Bit64u)CPU_SLDT();
+	state.Num(gdt_base);
+	state.Num(gdt_limit);
+	state.Num(idt_base);
+	state.Num(idt_limit);
+	state.Num(ldt_selector);
+
+	state.Num(CPU_CycleMax);
+	state.Num(CPU_OldCycleMax);
+	state.Num(CPU_CyclePercUsed);
+	state.Num(CPU_CycleLimit);
+	state.Num(CPU_CycleLeft);
+	state.Num(CPU_Cycles);
+	state.Num(CPU_IODelayRemoved);
+	state.Bool(CPU_CycleAutoAdjust);
+	state.Bool(CPU_SkipCycleAutoAdjust);
+
+	bool halted = CPU_IsHalted();
+	state.Bool(halted);
+
+	if (state.Saving()) return;
+
+	CPU_LGDT((Bitu)gdt_limit, (Bitu)gdt_base);
+	CPU_LIDT((Bitu)idt_limit, (Bitu)idt_base);
+	if (ldt_selector) CPU_LLDT((Bitu)ldt_selector);
+	CPU_SetHalted(halted);
+	/* Whatever the lazy form described, it was an instruction that is not the one
+	 * about to run any more. */
+	lflags.type = t_UNKNOWN;
+	/* The paging cache is keyed by the tables that were just replaced. */
+	PAGING_ClearTLB();
+}
+
+SAVESTATE_BLOCK(cpu, "CPU ", "processor registers and core state", SaveState_CPU);
+
 void CPU_ENTER(bool use32,Bitu bytes,Bitu level) {
 	level&=0x1f;
 	Bitu sp_index=reg_esp&cpu.stack.mask;
@@ -2105,7 +2208,7 @@ static void CPU_CycleIncrease(bool pressed) {
 		CPU_CyclePercUsed+=5;
 		if (CPU_CyclePercUsed>105) CPU_CyclePercUsed=105;
 		LOG_MSG("CPU speed: max %d percent.",CPU_CyclePercUsed);
-		GFX_SetTitle(CPU_CyclePercUsed,-1,false);
+		Platform_UpdateStatus(CPU_CyclePercUsed,-1,false);
 	} else {
 		Bit32s old_cycles=CPU_CycleMax;
 		if (CPU_CycleUp < 100) {
@@ -2120,7 +2223,7 @@ static void CPU_CycleIncrease(bool pressed) {
 			LOG_MSG("CPU speed: fixed %d cycles. If you need more than 20000, try core=dynamic in DOSBox's options.",CPU_CycleMax);
 		else
 			LOG_MSG("CPU speed: fixed %d cycles.",CPU_CycleMax);
-		GFX_SetTitle(CPU_CycleMax,-1,false);
+		Platform_UpdateStatus(CPU_CycleMax,-1,false);
 	}
 }
 
@@ -2133,7 +2236,7 @@ static void CPU_CycleDecrease(bool pressed) {
 			LOG_MSG("CPU speed: max %d percent. If the game runs too fast, try a fixed cycles amount in DOSBox's options.",CPU_CyclePercUsed);
 		else
 			LOG_MSG("CPU speed: max %d percent.",CPU_CyclePercUsed);
-		GFX_SetTitle(CPU_CyclePercUsed,-1,false);
+		Platform_UpdateStatus(CPU_CyclePercUsed,-1,false);
 	} else {
 		if (CPU_CycleDown < 100) {
 			CPU_CycleMax = (Bit32s)(CPU_CycleMax / (1 + (float)CPU_CycleDown / 100.0));
@@ -2143,7 +2246,7 @@ static void CPU_CycleDecrease(bool pressed) {
 		CPU_CycleLeft=0;CPU_Cycles=0;
 		if (CPU_CycleMax <= 0) CPU_CycleMax=1;
 		LOG_MSG("CPU speed: fixed %d cycles.",CPU_CycleMax);
-		GFX_SetTitle(CPU_CycleMax,-1,false);
+		Platform_UpdateStatus(CPU_CycleMax,-1,false);
 	}
 }
 
@@ -2401,11 +2504,13 @@ public:
 		if(CPU_CycleMax <= 0) CPU_CycleMax = 3000;
 		if(CPU_CycleUp <= 0)   CPU_CycleUp = 500;
 		if(CPU_CycleDown <= 0) CPU_CycleDown = 20;
-		if (CPU_CycleAutoAdjust) GFX_SetTitle(CPU_CyclePercUsed,-1,false);
-		else GFX_SetTitle(CPU_CycleMax,-1,false);
+		if (CPU_CycleAutoAdjust) Platform_UpdateStatus(CPU_CyclePercUsed,-1,false);
+		else Platform_UpdateStatus(CPU_CycleMax,-1,false);
 		return true;
 	}
-	~CPU(){ /* empty */};
+	~CPU(){
+		inited = false;
+	}
 };
 	
 static CPU * test;
@@ -2417,6 +2522,7 @@ void CPU_ShutDown(Section* sec) {
 	CPU_Core_Dynrec_Cache_Close();
 #endif
 	delete test;
+	test = NULL;
 }
 
 void CPU_Init(Section* sec) {

@@ -183,7 +183,30 @@ void DOS_DelDevice(DOS_Device * dev) {
 	}
 }
 
+/* The device this function is about to create again goes away first.
+ *
+ * A machine that is set up twice in one run of the program - which is what a
+ * front end that returns to a menu and starts another game does - reaches this
+ * with the devices of the previous machine still in the table. Their owners
+ * were shut down with their sections, so nothing will ever remove them, and the
+ * table only has room for DOS_DEVICES of them: the third game would run it full
+ * and DOS_AddDevice would end the program with "DOS:Too many devices added".
+ * Only the devices this function owns are replaced, so a device another module
+ * added before DOS is initialised is not touched. */
+static void DOS_RemoveDeviceByName(const char *name) {
+	for (Bitu i = 0; i < DOS_DEVICES; i++) {
+		if (Devices[i] && !strcasecmp(Devices[i]->name, name)) {
+			delete Devices[i];
+			Devices[i] = 0;
+			return;
+		}
+	}
+}
+
 void DOS_SetupDevices(void) {
+	DOS_RemoveDeviceByName("CON");
+	DOS_RemoveDeviceByName("NUL");
+	DOS_RemoveDeviceByName("LPT1");
 	DOS_Device * newdev;
 	newdev=new device_CON();
 	DOS_AddDevice(newdev);

@@ -1,4 +1,8 @@
 noinst_HEADERS =  \
+platform.h \
+platform_video.h \
+sdl_video.h \
+video.h \
 bios.h \
 bios_disk.h \
 callback.h \
@@ -29,12 +33,10 @@ pic.h \
 programs.h \
 render.h \
 regs.h \
-render.h \
 serialport.h \
 setup.h \
 shell.h \
 support.h \
 timer.h \
-vga.h \
-video.h
+vga.h
 

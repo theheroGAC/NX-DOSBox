@@ -23,7 +23,7 @@
 
 #include "dosbox.h"
 #include "keyboard.h"
-#include "video.h"
+#include "sdl_video.h"
 #include "render.h"
 #include "mapper.h"
 #include "setup.h"
@@ -39,7 +39,6 @@
 
 extern Bit8u int10_font_14[256 * 14];
 extern bool MSG_Write(const char *);
-extern void GFX_SetTitle(Bit32s cycles, int frameskip, bool paused);
 
 static int cursor, saved_bpp;
 static int old_unicode;
@@ -91,7 +90,7 @@ static void getPixel(Bits x, Bits y, int &r, int &g, int &b, int shift)
 
 static GUI::ScreenSDL *UI_Startup(GUI::ScreenSDL *screen) {
 	GFX_EndUpdate(0);
-	GFX_SetTitle(-1,-1,true);
+	Platform_UpdateStatus(-1,-1,true);
 	if(!screen) { //Coming from DOSBox. Clean up the keyboard buffer.
 		KEYBOARD_ClrBuffer();//Clear buffer
 	}
@@ -201,7 +200,7 @@ static void UI_Shutdown(GUI::ScreenSDL *screen) {
 	GFX_ResetScreen();
 	SDL_EnableUNICODE(old_unicode);
 	SDL_EnableKeyRepeat(0,0);
-	GFX_SetTitle(-1,-1,false);
+	Platform_UpdateStatus(-1,-1,false);
 }
 
 /* helper class for command execution */

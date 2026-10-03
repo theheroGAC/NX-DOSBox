@@ -86,6 +86,13 @@ extern DOS_DTA *imgDTA;
 
 void swapInDisks(void);
 void swapInNextDisk(void);
+
+/* Answers the guest's media change request by inserting the next image of the
+ * set instead of waiting for a person to do it. Off unless a front end turns it
+ * on, and off again for the setups that want to prompt: the automatic version is
+ * right for a launcher that mounted a whole floppy set and wrong for someone who
+ * mounted one image and expects to swap it themselves. */
+void BIOS_SetAutoDiskSwap(bool enabled);
 bool getSwapRequest(void);
 
 #endif

@@ -26,6 +26,7 @@
 #include "callback.h"
 #include "debug.h"
 #include "cpu.h"
+#include "platform.h"
 
 const char * RunningProgram="DOSBOX";
 
@@ -61,7 +62,6 @@ struct EXE_Header {
 #define OVERLAY 3
 
 
-extern void GFX_SetTitle(Bit32s cycles,int frameskip,bool paused);
 void DOS_UpdatePSPName(void) {
 	DOS_MCB mcb(dos.psp()-1);
 	static char name[9];
@@ -73,7 +73,7 @@ void DOS_UpdatePSPName(void) {
 		if ( !isprint(*reinterpret_cast<unsigned char*>(&name[i])) ) name[i] = '?';
 	}
 	RunningProgram = name;
-	GFX_SetTitle(-1,-1,false);
+	Platform_UpdateStatus(-1,-1,false);
 }
 
 void DOS_Terminate(Bit16u pspseg,bool tsr,Bit8u exitcode) {
@@ -126,9 +126,9 @@ void DOS_Terminate(Bit16u pspseg,bool tsr,Bit8u exitcode) {
 		CPU_CycleLeft=0;
 		CPU_Cycles=0;
 		CPU_CycleMax=CPU_OldCycleMax;
-		GFX_SetTitle(CPU_OldCycleMax,-1,false);
+		Platform_UpdateStatus(CPU_OldCycleMax,-1,false);
 	} else {
-		GFX_SetTitle(-1,-1,false);
+		Platform_UpdateStatus(-1,-1,false);
 	}
 #if (C_DYNAMIC_X86) || (C_DYNREC)
 	if (CPU_AutoDetermineMode&CPU_AUTODETERMINE_CORE) {

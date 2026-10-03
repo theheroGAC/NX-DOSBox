@@ -391,13 +391,13 @@ bool CDROM_Interface_Ioctl::PlayAudioSector	(unsigned long start,unsigned long l
 		return false;
 	}
 	if (use_dxplay) {
-		SDL_mutexP(player.mutex);
+		Platform_MutexLock(player.mutex);
 		player.cd = this;
 		player.currFrame = start;
 		player.targetFrame = start + len;
 		player.isPlaying = true;
 		player.isPaused = false;
-		SDL_mutexV(player.mutex);
+		Platform_MutexUnlock(player.mutex);
 		return true;
 	}
 
@@ -540,7 +540,7 @@ void CDROM_Interface_Ioctl::dx_CDAudioCallBack(Bitu len) {
 		player.channel->AddSilence();
 		return;
 	}
-	SDL_mutexP(player.mutex);
+	Platform_MutexLock(player.mutex);
 	while (player.bufLen < (Bits)len) {
 		bool success;
 		if (player.targetFrame > player.currFrame)
@@ -556,7 +556,7 @@ void CDROM_Interface_Ioctl::dx_CDAudioCallBack(Bitu len) {
 			player.isPlaying = false;
 		}
 	}
-	SDL_mutexV(player.mutex);
+	Platform_MutexUnlock(player.mutex);
 	if (player.ctrlUsed) {
 		Bit16s sample0,sample1;
 		Bit16s * samples=(Bit16s *)&player.buffer;
@@ -590,7 +590,7 @@ bool CDROM_Interface_Ioctl::SetDevice(char* path, int forceCD) {
 			if (!use_mciplay) {
 				if (cdioctl_cda_selected == CDIOCTL_CDA_DX) {
 					// use direct sector access for cd audio routines
-					player.mutex = SDL_CreateMutex();
+					player.mutex = Platform_MutexCreate();
 					if (!player.channel) {
 						player.channel = MIXER_AddChannel(&dx_CDAudioCallBack, 44100, "CDAUDIO");
 					}

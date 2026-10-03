@@ -289,10 +289,16 @@ int CMscdex::AddDrive(Bit16u _drive, char* physicalPath, Bit8u& subUnit)
 		// Always use IOCTL in Linux or OS/2
 		cdrom[numDrives] = new CDROM_Interface_Ioctl();
 		LOG(LOG_MISC,LOG_NORMAL)("MSCDEX: IOCTL Interface.");
-#else
+#elif C_SDL_CDROM
 		// Default case windows and other oses
 		cdrom[numDrives] = new CDROM_Interface_SDL();
 		LOG(LOG_MISC,LOG_NORMAL)("MSCDEX: SDL Interface.");
+#else
+		// No physical CD backend at all. The drive list below is empty on
+		// such a target, so this branch is unreachable in practice; the
+		// fake interface just keeps the switch exhaustive.
+		cdrom[numDrives] = new CDROM_Interface_Fake();
+		LOG(LOG_MISC,LOG_NORMAL)("MSCDEX: No physical CD-ROM backend.");
 #endif
 		} break;
 	case 0x01:	// iso cdrom interface	
@@ -1335,7 +1341,20 @@ void MSCDEX_SetCDInterface(int intNr, int numCD) {
 	forceCD	= numCD;
 }
 
+/* The device this section registered, so the shutdown can take it back out.
+ * The device table holds DOS_DEVICES entries for the whole run of the program,
+ * and a front end that starts a second game creates the section again: without
+ * this the device of the previous game stays in the table forever and the third
+ * one runs it full (DOS_AddDevice then ends the program with "DOS:Too many
+ * devices added"). */
+static device_MSCDEX * mscdex_device = 0;
+
 void MSCDEX_ShutDown(Section* /*sec*/) {
+	if (mscdex_device) {
+		DOS_DelDevice(mscdex_device);
+		mscdex_device = 0;
+	}
+	DOS_DelMultiplexHandler(MSCDEX_Handler);
 	delete mscdex;
 	mscdex = 0;
 	curReqheaderPtr = 0;
@@ -1345,7 +1364,8 @@ void MSCDEX_Init(Section* sec) {
 	// AddDestroy func
 	sec->AddDestroyFunction(&MSCDEX_ShutDown);
 	/* Register the mscdex device */
-	DOS_Device * newdev = new device_MSCDEX();
+	device_MSCDEX * newdev = new device_MSCDEX();
+	mscdex_device = newdev;
 	DOS_AddDevice(newdev);
 	curReqheaderPtr = 0;
 	/* Add Multiplexer */

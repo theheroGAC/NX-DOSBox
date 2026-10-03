@@ -26,6 +26,7 @@
 #include "mem.h"
 #include "fpu.h"
 #include "cpu.h"
+#include "savestate.h"
 
 FPU_rec fpu;
 
@@ -629,5 +630,23 @@ void FPU_ESC7_Normal(Bitu rm) {
 void FPU_Init(Section*) {
 	FPU_FINIT();
 }
+
+/* ------------------------------------------------------------- save state */
+
+/* The stack, the tag word and the status word, as they sit in memory; the
+ * control word is recovered through FPU_SetCW so the masked copy of it (and the
+ * rounding mode) are derived again rather than stored twice. */
+static void SaveState_FPU(SaveState &state) {
+	state.Pod(fpu.regs);
+	state.Pod(fpu.p_regs);
+	state.Pod(fpu.tags);
+	state.Num(fpu.sw);
+	state.Num(fpu.top);
+	Bit16u control = fpu.cw;
+	state.Num(control);
+	if (!state.Saving()) FPU_SetCW(control);
+}
+
+SAVESTATE_BLOCK(fpu, "FPU ", "floating point unit", SaveState_FPU);
 
 #endif

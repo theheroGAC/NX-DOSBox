@@ -30,6 +30,7 @@
 #include "setup.h"
 #include "support.h"
 #include "serialport.h"
+#include "bios_disk.h"
 
 DOS_Block dos;
 DOS_InfoBlock dos_infoblock;
@@ -1324,7 +1325,51 @@ public:
 		dos.internal_output=false;
 	}
 	~DOS(){
-		for (Bit16u i=0;i<DOS_DRIVES;i++) delete Drives[i];
+		/* Delete each drive *and take the slot back*. The array is a global that
+		 * outlives the machine, and a console front end builds a new one in the
+		 * same process for every game the launcher starts, so what was left in
+		 * Drives[] here was still there - and still pointed at freed memory - when
+		 * the next session's AUTOEXEC ran.
+		 *
+		 * IMGMOUNT refuses a letter whose slot is occupied ("Drive already mounted
+		 * at that letter."), so a floppy image the user launched a second time was
+		 * silently not mounted at all, and the "a:" that follows it in AUTOEXEC.BAT
+		 * was talking to a dead drive. MOUNT overwrites its slot without a check,
+		 * so C: was quietly leaking the previous session's drive instead.
+		 *
+		 * Emptying the array is what makes the next machine start with no drives,
+		 * which is the same job DriveManager::Init() does for the image lists and
+		/* Close and delete any files that are still open before taking down drives */
+		for (Bit8u i=0; i<DOS_FILES; i++) {
+			if (Files[i]) {
+				Files[i]->Close();
+				delete Files[i];
+				Files[i] = NULL;
+			}
+		}
+
+		/* Cleanly shut down DriveManager so all managed disks (including swappables)
+		 * are deleted and driveInfos is cleared, setting Drives[i] = NULL if matched */
+		DriveManager::ShutDown();
+
+		for (Bit16u i=0;i<DOS_DRIVES;i++) {
+			delete Drives[i];
+			Drives[i] = NULL;
+		}
+		for (Bit16u i=0;i<MAX_DISK_IMAGES;i++) {
+			imageDiskList[i] = NULL;
+		}
+		for (Bit16u i=0;i<MAX_SWAPPABLE_DISKS;i++) {
+			if (diskSwap[i]) {
+				delete diskSwap[i];
+				diskSwap[i] = NULL;
+			}
+		}
+		if (imgDTA) {
+			delete imgDTA;
+			imgDTA = NULL;
+		}
+		imgDTASeg = 0;
 	}
 };
 

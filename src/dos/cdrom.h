@@ -31,8 +31,7 @@
 #include "dosbox.h"
 #include "mem.h"
 #include "mixer.h"
-#include "SDL.h"
-#include "SDL_thread.h"
+#include "platform.h"
 
 #if defined(C_SDL_SOUND)
 #include "SDL_sound.h"
@@ -40,6 +39,23 @@
 
 #define RAW_SECTOR_SIZE		2352
 #define COOKED_SECTOR_SIZE	2048
+
+#if !C_SDL_CDROM
+/* These two come from SDL_cdrom.h upstream. The ISO/CUE backend and MSCDEX need
+ * them independently of the physical drive backend, so they are provided here
+ * for the targets that do not link SDL at all. The bodies match SDL 1.2's;
+ * only the parameter names differ, because C99 forbids a macro from naming the
+ * same parameter twice (SDL spells the frame parameter "f" twice). */
+#define FRAMES_TO_MSF(_frames, _min, _sec, _frame)	\
+	{						\
+		int _f = (_frames);			\
+		*(_min) = (unsigned char) (_f / (75*60));	\
+		*(_sec) = (unsigned char) ((_f / 75) % 60);	\
+		*(_frame) = (unsigned char) (_f % 75);	\
+	}
+#define MSF_TO_FRAMES(_min, _sec, _frame)	\
+	((_min)*60*75+(_sec)*75+(_frame))
+#endif
 
 enum { CDROM_USE_SDL, CDROM_USE_ASPI, CDROM_USE_IOCTL_DIO, CDROM_USE_IOCTL_DX, CDROM_USE_IOCTL_MCI };
 
@@ -55,6 +71,11 @@ typedef struct SCtrl {
 } TCtrl;
 
 extern int CDROM_GetMountType(char* path, int force);
+
+/* Physical CD-ROM enumeration, implemented by the host CD backend. A target
+ * without an optical drive reports zero drives here. */
+extern int CDROM_GetDriveCount(void);
+extern const char *CDROM_GetDriveName(int index);
 
 class CDROM_Interface
 {
@@ -84,6 +105,8 @@ public:
 	virtual void	InitNewMedia		(void) {};
 };	
 
+#if C_SDL_CDROM
+
 class CDROM_Interface_SDL : public CDROM_Interface
 {
 public:
@@ -105,13 +128,15 @@ public:
 	virtual bool	LoadUnloadMedia		(bool unload);
 
 private:
-	bool	Open				(void);
-	void	Close				(void);
+	bool	Open				(void);	void	Close			(void);
 
-	SDL_CD*	cd;
+	void*	cd;			/* opaque SDL_CD, only used by the SDL CD backend */
 	int		driveID;
-	Uint32	oldLeadOut;
+	Bit32u	oldLeadOut;
 };
+
+#endif /* C_SDL_CDROM */
+
 
 class CDROM_Interface_Fake : public CDROM_Interface
 {
@@ -208,7 +233,7 @@ static	void	CDAudioCallBack(Bitu len);
 static  struct imagePlayer {
 		CDROM_Interface_Image *cd;
 		MixerChannel   *channel;
-		SDL_mutex 	*mutex;
+		Platform_MutexHandle mutex;
 		Bit8u   buffer[8192];
 		int     bufLen;
 		int     currFrame;	
@@ -362,7 +387,7 @@ private:
 	static  struct dxPlayer {
 		CDROM_Interface_Ioctl *cd;
 		MixerChannel	*channel;
-		SDL_mutex		*mutex;
+		Platform_MutexHandle	mutex;
 		Bit8u   buffer[8192];
 		int     bufLen;
 		int     currFrame;	

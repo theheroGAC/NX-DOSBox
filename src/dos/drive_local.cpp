@@ -51,7 +51,24 @@ bool localDrive::FileCreate(DOS_File * * file,char * name,Bit16u /*attributes*/)
 	FILE * hand = fopen_wrap(temp_name,"wb+");
 	if (!hand){
 		LOG_MSG("Warning: file creation failed: %s",newname);
+		/* The core's own log goes to the debug channel, which on a console is
+		 * shown to nobody, and an installer whose files cannot be created looks
+		 * exactly like an installer in a loop: the screen says the same thing
+		 * either way. The name goes to the card's trace file instead, so a
+		 * freeze can be read against what the guest last managed to do. */
+		{
+			extern void SwitchPlatform_Trace(const char *step);
+			char trace[192];
+			snprintf(trace, sizeof(trace), "DOS: create FAILED %s", newname);
+			SwitchPlatform_Trace(trace);
+		}
 		return false;
+	}
+	{
+		extern void SwitchPlatform_Trace(const char *step);
+		char trace[192];
+		snprintf(trace, sizeof(trace), "DOS: create %s", newname);
+		SwitchPlatform_Trace(trace);
 	}
    
 	if(!existing_file) dirCache.AddEntry(newname, true);
@@ -519,7 +536,13 @@ bool localFile::Close() {
 Bit16u localFile::GetInformation(void) {
 	return read_only_medium?0x40:0;
 }
-	
+
+localFile::~localFile() {
+	if (fhandle) {
+		fclose(fhandle);
+		fhandle = 0;
+	}
+}
 
 localFile::localFile(const char* _name, FILE * handle) {
 	fhandle=handle;

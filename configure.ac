@@ -563,6 +563,14 @@ case "$host" in
 esac
 fi
 
+dnl The SDL keyboard and CD-ROM interfaces are only available when the SDL
+dnl headers are in use. Hand written config.h files for console targets leave
+dnl both at 0 so the SDL includes in bios_keyboard.cpp and cdrom.cpp are skipped.
+AH_TEMPLATE(C_SDL_KEYBOARD,[Define to 1 to use the SDL keyboard lock-key handling])
+AC_DEFINE(C_SDL_KEYBOARD,1)
+AH_TEMPLATE(C_SDL_CDROM,[Define to 1 to use the SDL CD-ROM interface])
+AC_DEFINE(C_SDL_CDROM,1)
+
 AH_TEMPLATE(C_SDL_SOUND,[Define to 1 to enable SDL_sound support])
 AC_CHECK_HEADER(SDL_sound.h,have_SDL_sound_h=yes,)
 AC_CHECK_LIB(SDL_sound, Sound_Init, have_SDL_sound_init=yes,,)
@@ -633,6 +641,7 @@ case "$host" in
     *-*-linux*)
        AC_DEFINE(LINUX, 1, [Compiling on GNU/Linux])
        AC_DEFINE(C_DIRECTSERIAL, 1, [ Define to 1 if you want serial passthrough support (Win32, Posix and OS/2).])
+       AC_DEFINE(C_SUPPORTS_OSS, 1, [ Define to 1 to enable the OSS MIDI driver.])
        ;;
     *-*-freebsd* | *-*-dragonfly* | *-*-netbsd* | *-*-openbsd*)
        dnl Disabled directserial for now. It doesn't do anything without
@@ -642,6 +651,7 @@ case "$host" in
        dnl which ones are needed for BSD
        AC_DEFINE(BSD, 1, [Compiling on BSD])
        AC_DEFINE(C_DIRECTSERIAL, 1, [ Define to 1 if you want serial passthrough support (Win32, Posix and OS/2).])
+       AC_DEFINE(C_SUPPORTS_OSS, 1, [ Define to 1 to enable the OSS MIDI driver.])
        ;;
     *-*-os2-emx*)
        AC_DEFINE(OS2, 1, [Compiling on OS/2 EMX])

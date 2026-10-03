@@ -17,10 +17,7 @@
  */
 
 
-/*
-	Remove the sdl code from here and have it handled in the sdlmain.
-	That should call the mixer start from there or something.
-*/
+/* Modified for the standalone platform service boundary, 2026. */
 
 #include <string.h>
 #include <sys/types.h>
@@ -35,7 +32,7 @@
 #include <mmsystem.h>
 #endif
 
-#include "SDL.h"
+#include "platform.h"
 #include "mem.h"
 #include "pic.h"
 #include "dosbox.h"
@@ -142,6 +139,24 @@ void MixerChannel::SetVolume(float _left,float _right) {
 	UpdateVolume();
 }
 
+/* One knob for the whole machine. A console has no room for a per channel
+ * mixer and most DOS games hide their own volume behind a setup program, so
+ * the menu adjusts every channel at once. The master volume is read back by
+ * the menu to label the slider, which is the only way to know the level a
+ * game started with. */
+void MIXER_SetMasterVolume(float volume) {
+	if (volume < 0.0f) volume = 0.0f;
+	if (volume > 1.0f) volume = 1.0f;
+	mixer.mastervol[0] = volume;
+	mixer.mastervol[1] = volume;
+	for (MixerChannel * chan = mixer.channels; chan; chan = chan->next)
+		chan->UpdateVolume();
+}
+
+float MIXER_GetMasterVolume(void) {
+	return mixer.mastervol[0];
+}
+
 void MixerChannel::SetScale( float f ) {
 	scale = f;
 	UpdateVolume();
@@ -152,9 +167,9 @@ void MixerChannel::Enable(bool _yesno) {
 	enabled=_yesno;
 	if (enabled) {
 		freq_counter = 0;
-		SDL_LockAudio();
+		Platform_AudioLock();
 		if (done<mixer.done) done=mixer.done;
-		SDL_UnlockAudio();
+		Platform_AudioUnlock();
 	}
 }
 
@@ -447,14 +462,14 @@ void MixerChannel::AddSamples_s32_nonnative(Bitu len,const Bit32s * data) {
 void MixerChannel::FillUp(void) {
 	if (!enabled) return;
 
-	SDL_LockAudio();
+	Platform_AudioLock();
 	if (done < mixer.done) {
-		SDL_UnlockAudio();
+		Platform_AudioUnlock();
 		return;
 	}
 	float index = PIC_TickIndex();
 	Mix((Bitu)(index * mixer.needed));
-	SDL_UnlockAudio();
+	Platform_AudioUnlock();
 }
 
 extern bool ticksLocked;
@@ -504,12 +519,17 @@ static void MIXER_MixData(Bitu needed) {
 }
 
 static void MIXER_Mix(void) {
-	SDL_LockAudio();
+	Platform_AudioLock();
 	MIXER_MixData(mixer.needed);
 	mixer.tick_counter += mixer.tick_add;
 	mixer.needed+=(mixer.tick_counter >> TICK_SHIFT);
 	mixer.tick_counter &= TICK_MASK;
-	SDL_UnlockAudio();
+	/* The ring is MIXER_BUFSIZE samples long: more than that cannot be played
+	 * and is only paid for once per tick, so a counter that ran away - an
+	 * update lost between this thread and the audio callback, a long stall - is
+	 * capped here instead of being mixed for the rest of the session. */
+	if (mixer.needed > MIXER_BUFSIZE) mixer.needed = MIXER_BUFSIZE;
+	Platform_AudioUnlock();
 }
 
 static void MIXER_Mix_NoSound(void) {
@@ -535,7 +555,7 @@ static void MIXER_Mix_NoSound(void) {
 
 #define INDEX_SHIFT_LOCAL 14
 
-static void SDLCALL MIXER_CallBack(void * /*userdata*/, Uint8 *stream, int len) {
+static void MIXER_CallBack(void * /*userdata*/, Bit8u *stream, int len) {
 	Bitu need=(Bitu)len/MIXER_SSIZE;
 	Bit16s * output=(Bit16s *)stream;
 	Bitu reduce;
@@ -646,6 +666,17 @@ static void SDLCALL MIXER_CallBack(void * /*userdata*/, Uint8 *stream, int len) 
 #undef INDEX_SHIFT_LOCAL
 
 static void MIXER_Stop(Section* /*sec*/) {
+    if (!mixer.nosound) {
+        Platform_AudioPause(true);
+        Platform_AudioClose();
+    }
+    /* The tick handler list outlives the machine it belongs to. A front end that
+     * starts the next game in the same process would otherwise keep mixing the
+     * samples of this one, twice per tick after two games, and mixer.needed grows
+     * from there until the session spends all of its time in here. */
+    TIMER_DelTickHandler(MIXER_Mix);
+    TIMER_DelTickHandler(MIXER_Mix_NoSound);
+    mixer.nosound = true;
 }
 
 class MIXER : public Program {
@@ -739,10 +770,10 @@ void MIXER_Init(Section* sec) {
 	Section_prop * section=static_cast<Section_prop *>(sec);
 	/* Read out config section */
 	mixer.freq=section->Get_int("rate");
-	mixer.nosound=section->Get_bool("nosound");
 	mixer.blocksize=section->Get_int("blocksize");
 
 	/* Initialize the internal stuff */
+	mixer.nosound=section->Get_bool("nosound");
 	mixer.channels=0;
 	mixer.pos=0;
 	mixer.done=0;
@@ -750,35 +781,29 @@ void MIXER_Init(Section* sec) {
 	mixer.mastervol[0]=1.0f;
 	mixer.mastervol[1]=1.0f;
 
-	/* Start the Mixer using SDL Sound at 22 khz */
-	SDL_AudioSpec spec;
-	SDL_AudioSpec obtained;
-
-	spec.freq=mixer.freq;
-	spec.format=AUDIO_S16SYS;
-	spec.channels=2;
-	spec.callback=MIXER_CallBack;
-	spec.userdata=NULL;
-	spec.samples=(Uint16)mixer.blocksize;
+	/* Start the mixer using the platform audio backend. */
+	Bit32u obtained_freq = mixer.freq;
+	Bit32u obtained_blocksize = mixer.blocksize;
 
 	mixer.tick_counter=0;
 	if (mixer.nosound) {
 		LOG_MSG("MIXER: No Sound Mode Selected.");
 		mixer.tick_add=calc_tickadd(mixer.freq);
 		TIMER_AddTickHandler(MIXER_Mix_NoSound);
-	} else if (SDL_OpenAudio(&spec, &obtained) <0 ) {
+	} else if (!Platform_AudioOpen(mixer.freq, mixer.blocksize, MIXER_CallBack, NULL,
+	                               &obtained_freq, &obtained_blocksize)) {
 		mixer.nosound = true;
-		LOG_MSG("MIXER: Can't open audio: %s , running in nosound mode.",SDL_GetError());
+		LOG_MSG("MIXER: Can't open audio: %s, running in nosound mode.", Platform_AudioError());
 		mixer.tick_add=calc_tickadd(mixer.freq);
 		TIMER_AddTickHandler(MIXER_Mix_NoSound);
 	} else {
-		if ((mixer.freq != static_cast<Bit32u>(obtained.freq)) || (mixer.blocksize != obtained.samples))
-			LOG_MSG("MIXER: Got different values from SDL: freq %d, blocksize %d",obtained.freq,obtained.samples);
-		mixer.freq=obtained.freq;
-		mixer.blocksize=obtained.samples;
+		if ((mixer.freq != obtained_freq) || (mixer.blocksize != obtained_blocksize))
+			LOG_MSG("MIXER: Got different values from audio backend: freq %u, blocksize %u", obtained_freq, obtained_blocksize);
+		mixer.freq=obtained_freq;
+		mixer.blocksize=obtained_blocksize;
 		mixer.tick_add=calc_tickadd(mixer.freq);
 		TIMER_AddTickHandler(MIXER_Mix);
-		SDL_PauseAudio(0);
+		Platform_AudioPause(false);
 	}
 	//1000 = 8 *125
 	mixer.tick_counter = (mixer.freq%125)?TICK_NEXT:0;

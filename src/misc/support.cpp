@@ -32,7 +32,6 @@
 #include "cross.h"
 #include "debug.h"
 #include "support.h"
-#include "video.h"
 
 
 void upcase(std::string &str) {

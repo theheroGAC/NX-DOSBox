@@ -159,6 +159,9 @@
 				RelativePath="..\src\dosbox.cpp">
 			</File>
 			<File
+				RelativePath="..\src\platform\sdl_platform.cpp">
+			</File>
+			<File
 				RelativePath="..\src\winres.rc">
 			</File>
 			<Filter
@@ -879,6 +882,15 @@
 			</File>
 			<File
 				RelativePath="..\include\paging.h">
+			</File>
+			<File
+				RelativePath="..\include\platform.h">
+			</File>
+			<File
+				RelativePath="..\include\platform_video.h">
+			</File>
+			<File
+				RelativePath="..\include\sdl_video.h">
 			</File>
 			<File
 				RelativePath="..\include\pci_bus.h">

@@ -30,7 +30,8 @@
 #include "SDL_thread.h"
 
 #include "dosbox.h"
-#include "video.h"
+#include "platform.h"
+#include "sdl_video.h"
 #include "keyboard.h"
 #include "joystick.h"
 #include "support.h"
@@ -736,9 +737,9 @@ public:
 				jaxis = &event->jaxis;
 				if(jaxis->which == stick) {
 					if(jaxis->axis == 0)
-						JOYSTICK_Move_X(emustick,(float)(jaxis->value/32768.0));
+						Platform_InputJoystickMoveX(emustick,(float)(jaxis->value/32768.0));
 					else if(jaxis->axis == 1)
-						JOYSTICK_Move_Y(emustick,(float)(jaxis->value/32768.0));
+						Platform_InputJoystickMoveY(emustick,(float)(jaxis->value/32768.0));
 				}
 				break;
 			case SDL_JOYBUTTONDOWN:
@@ -748,7 +749,7 @@ public:
 				state=jbutton->type==SDL_JOYBUTTONDOWN;
 				but = jbutton->button % emulated_buttons;
 				if (jbutton->which == stick) {
-					JOYSTICK_Button(emustick,but,state);
+					Platform_InputJoystickButton(emustick,but,state);
 				}
 				break;
 		}
@@ -769,13 +770,13 @@ public:
 		}
 		for (i=0; i<emulated_buttons; i++) {
 			if (autofire && (button_pressed[i]))
-				JOYSTICK_Button(emustick,i,(++button_autofire[i])&1);
+				Platform_InputJoystickButton(emustick,i,(++button_autofire[i])&1);
 			else
-				JOYSTICK_Button(emustick,i,button_pressed[i]);
+				Platform_InputJoystickButton(emustick,i,button_pressed[i]);
 		}
 
-		JOYSTICK_Move_X(emustick,((float)virtual_joysticks[emustick].axis_pos[0])/32768.0f);
-		JOYSTICK_Move_Y(emustick,((float)virtual_joysticks[emustick].axis_pos[1])/32768.0f);
+		Platform_InputJoystickMoveX(emustick,((float)virtual_joysticks[emustick].axis_pos[0])/32768.0f);
+		Platform_InputJoystickMoveY(emustick,((float)virtual_joysticks[emustick].axis_pos[1])/32768.0f);
 	}
 
 	void ActivateJoystickBoundEvents() {
@@ -928,9 +929,9 @@ public:
 				jaxis = &event->jaxis;
 				if(jaxis->which == stick && jaxis->axis < 4) {
 					if(jaxis->axis & 1)
-						JOYSTICK_Move_Y(jaxis->axis>>1 & 1,(float)(jaxis->value/32768.0));
+						Platform_InputJoystickMoveY(jaxis->axis>>1 & 1,(float)(jaxis->value/32768.0));
 					else
-						JOYSTICK_Move_X(jaxis->axis>>1 & 1,(float)(jaxis->value/32768.0));
+						Platform_InputJoystickMoveX(jaxis->axis>>1 & 1,(float)(jaxis->value/32768.0));
 				}
 				break;
 			case SDL_JOYBUTTONDOWN:
@@ -940,7 +941,7 @@ public:
 				state=jbutton->type==SDL_JOYBUTTONDOWN;
 				but = jbutton->button % emulated_buttons;
 				if (jbutton->which == stick) {
-					JOYSTICK_Button((but >> 1),(but & 1),state);
+					Platform_InputJoystickButton((but >> 1),(but & 1),state);
 				}
 				break;
 		}
@@ -961,15 +962,15 @@ public:
 		}
 		for (i=0; i<emulated_buttons; i++) {
 			if (autofire && (button_pressed[i]))
-				JOYSTICK_Button(i>>1,i&1,(++button_autofire[i])&1);
+				Platform_InputJoystickButton(i>>1,i&1,(++button_autofire[i])&1);
 			else
-				JOYSTICK_Button(i>>1,i&1,button_pressed[i]);
+				Platform_InputJoystickButton(i>>1,i&1,button_pressed[i]);
 		}
 
-		JOYSTICK_Move_X(0,((float)virtual_joysticks[0].axis_pos[0])/32768.0f);
-		JOYSTICK_Move_Y(0,((float)virtual_joysticks[0].axis_pos[1])/32768.0f);
-		JOYSTICK_Move_X(1,((float)virtual_joysticks[0].axis_pos[2])/32768.0f);
-		JOYSTICK_Move_Y(1,((float)virtual_joysticks[0].axis_pos[3])/32768.0f);
+		Platform_InputJoystickMoveX(0,((float)virtual_joysticks[0].axis_pos[0])/32768.0f);
+		Platform_InputJoystickMoveY(0,((float)virtual_joysticks[0].axis_pos[1])/32768.0f);
+		Platform_InputJoystickMoveX(1,((float)virtual_joysticks[0].axis_pos[2])/32768.0f);
+		Platform_InputJoystickMoveY(1,((float)virtual_joysticks[0].axis_pos[3])/32768.0f);
 	}
 };
 
@@ -988,7 +989,7 @@ public:
 		if (hats_cap>hats) hats_cap=hats;
 
 		JOYSTICK_Enable(1,true);
-		JOYSTICK_Move_Y(1,1.0);
+		Platform_InputJoystickMoveY(1,1.0);
 	}
 
 	bool CheckEvent(SDL_Event * event) {
@@ -1002,11 +1003,11 @@ public:
 				jaxis = &event->jaxis;
 				if(jaxis->which == stick) {
 					if(jaxis->axis == 0)
-						JOYSTICK_Move_X(0,(float)(jaxis->value/32768.0));
+						Platform_InputJoystickMoveX(0,(float)(jaxis->value/32768.0));
 					else if(jaxis->axis == 1)
-						JOYSTICK_Move_Y(0,(float)(jaxis->value/32768.0));
+						Platform_InputJoystickMoveY(0,(float)(jaxis->value/32768.0));
 					else if(jaxis->axis == 2)
-						JOYSTICK_Move_X(1,(float)(jaxis->value/32768.0));
+						Platform_InputJoystickMoveX(1,(float)(jaxis->value/32768.0));
 				}
 				break;
 			case SDL_JOYHATMOTION:
@@ -1020,7 +1021,7 @@ public:
 				state=jbutton->type==SDL_JOYBUTTONDOWN;
 				but = jbutton->button % emulated_buttons;
 				if (jbutton->which == stick) {
-						JOYSTICK_Button((but >> 1),(but & 1),state);
+						Platform_InputJoystickButton((but >> 1),(but & 1),state);
 				}
 				break;
 		}
@@ -1041,14 +1042,14 @@ public:
 		}
 		for (i=0; i<emulated_buttons; i++) {
 			if (autofire && (button_pressed[i]))
-				JOYSTICK_Button(i>>1,i&1,(++button_autofire[i])&1);
+				Platform_InputJoystickButton(i>>1,i&1,(++button_autofire[i])&1);
 			else
-				JOYSTICK_Button(i>>1,i&1,button_pressed[i]);
+				Platform_InputJoystickButton(i>>1,i&1,button_pressed[i]);
 		}
 
-		JOYSTICK_Move_X(0,((float)virtual_joysticks[0].axis_pos[0])/32768.0f);
-		JOYSTICK_Move_Y(0,((float)virtual_joysticks[0].axis_pos[1])/32768.0f);
-		JOYSTICK_Move_X(1,((float)virtual_joysticks[0].axis_pos[2])/32768.0f);
+		Platform_InputJoystickMoveX(0,((float)virtual_joysticks[0].axis_pos[0])/32768.0f);
+		Platform_InputJoystickMoveY(0,((float)virtual_joysticks[0].axis_pos[1])/32768.0f);
+		Platform_InputJoystickMoveX(1,((float)virtual_joysticks[0].axis_pos[2])/32768.0f);
 
 		Uint8 hat_pos=0;
 		if (virtual_joysticks[0].hat_pressed[0]) hat_pos|=SDL_HAT_UP;
@@ -1068,43 +1069,43 @@ private:
 	void DecodeHatPosition(Uint8 hat_pos) {
 		switch(hat_pos) {
 			case SDL_HAT_CENTERED:
-				JOYSTICK_Move_Y(1,1.0);
+				Platform_InputJoystickMoveY(1,1.0);
 				break;
 			case SDL_HAT_UP:
-				JOYSTICK_Move_Y(1,-1.0);
+				Platform_InputJoystickMoveY(1,-1.0);
 				break;
 			case SDL_HAT_RIGHT:
-				JOYSTICK_Move_Y(1,-0.5);
+				Platform_InputJoystickMoveY(1,-0.5);
 				break;
 			case SDL_HAT_DOWN:
-				JOYSTICK_Move_Y(1,0.0);
+				Platform_InputJoystickMoveY(1,0.0);
 				break;
 			case SDL_HAT_LEFT:
-				JOYSTICK_Move_Y(1,0.5);
+				Platform_InputJoystickMoveY(1,0.5);
 				break;
 			case SDL_HAT_LEFTUP:
 				if(JOYSTICK_GetMove_Y(1) < 0)
-					JOYSTICK_Move_Y(1,0.5);
+					Platform_InputJoystickMoveY(1,0.5);
 				else
-					JOYSTICK_Move_Y(1,-1.0);
+					Platform_InputJoystickMoveY(1,-1.0);
 				break;
 			case SDL_HAT_RIGHTUP:
 				if(JOYSTICK_GetMove_Y(1) < -0.7)
-					JOYSTICK_Move_Y(1,-0.5);
+					Platform_InputJoystickMoveY(1,-0.5);
 				else
-					JOYSTICK_Move_Y(1,-1.0);
+					Platform_InputJoystickMoveY(1,-1.0);
 				break;
 			case SDL_HAT_RIGHTDOWN:
 				if(JOYSTICK_GetMove_Y(1) < -0.2)
-					JOYSTICK_Move_Y(1,0.0);
+					Platform_InputJoystickMoveY(1,0.0);
 				else
-					JOYSTICK_Move_Y(1,-0.5);
+					Platform_InputJoystickMoveY(1,-0.5);
 				break;
 			case SDL_HAT_LEFTDOWN:
 				if(JOYSTICK_GetMove_Y(1) > 0.2)
-					JOYSTICK_Move_Y(1,0.0);
+					Platform_InputJoystickMoveY(1,0.0);
 				else
-					JOYSTICK_Move_Y(1,0.5);
+					Platform_InputJoystickMoveY(1,0.5);
 				break;
 		}
 	}
@@ -1140,9 +1141,9 @@ public:
 				jaxis = &event->jaxis;
 				if(jaxis->which == stick && jaxis->axis < 4) {
 					if(jaxis->axis & 1)
-						JOYSTICK_Move_Y(jaxis->axis>>1 & 1,(float)(jaxis->value/32768.0));
+						Platform_InputJoystickMoveY(jaxis->axis>>1 & 1,(float)(jaxis->value/32768.0));
 					else
-						JOYSTICK_Move_X(jaxis->axis>>1 & 1,(float)(jaxis->value/32768.0));
+						Platform_InputJoystickMoveX(jaxis->axis>>1 & 1,(float)(jaxis->value/32768.0));
 				}
 				break;
 			case SDL_JOYHATMOTION:
@@ -1178,10 +1179,10 @@ public:
 		Bit16u j;
 		j=button_state;
 		for(i=0;i<16;i++) if (j & 1) break; else j>>=1;
-		JOYSTICK_Button(0,0,i&1);
-		JOYSTICK_Button(0,1,(i>>1)&1);
-		JOYSTICK_Button(1,0,(i>>2)&1);
-		JOYSTICK_Button(1,1,(i>>3)&1);
+		Platform_InputJoystickButton(0,0,i&1);
+		Platform_InputJoystickButton(0,1,(i>>1)&1);
+		Platform_InputJoystickButton(1,0,(i>>2)&1);
+		Platform_InputJoystickButton(1,1,(i>>3)&1);
 		return false;
 	}
 
@@ -1192,10 +1193,10 @@ public:
 		/* query SDL joystick and activate bindings */
 		ActivateJoystickBoundEvents();
 
-		JOYSTICK_Move_X(0,((float)virtual_joysticks[0].axis_pos[0])/32768.0f);
-		JOYSTICK_Move_Y(0,((float)virtual_joysticks[0].axis_pos[1])/32768.0f);
-		JOYSTICK_Move_X(1,((float)virtual_joysticks[0].axis_pos[2])/32768.0f);
-		JOYSTICK_Move_Y(1,((float)virtual_joysticks[0].axis_pos[3])/32768.0f);
+		Platform_InputJoystickMoveX(0,((float)virtual_joysticks[0].axis_pos[0])/32768.0f);
+		Platform_InputJoystickMoveY(0,((float)virtual_joysticks[0].axis_pos[1])/32768.0f);
+		Platform_InputJoystickMoveX(1,((float)virtual_joysticks[0].axis_pos[2])/32768.0f);
+		Platform_InputJoystickMoveY(1,((float)virtual_joysticks[0].axis_pos[3])/32768.0f);
 
 		Bitu bt_state=15;
 
@@ -1230,10 +1231,10 @@ public:
 		}
 
 		if (bt_state>15) bt_state=15;
-		JOYSTICK_Button(0,0,(bt_state&8)==0);
-		JOYSTICK_Button(0,1,(bt_state&4)==0);
-		JOYSTICK_Button(1,0,(bt_state&2)==0);
-		JOYSTICK_Button(1,1,(bt_state&1)==0);
+		Platform_InputJoystickButton(0,0,(bt_state&8)==0);
+		Platform_InputJoystickButton(0,1,(bt_state&4)==0);
+		Platform_InputJoystickButton(1,0,(bt_state&2)==0);
+		Platform_InputJoystickButton(1,1,(bt_state&1)==0);
 	}
 
 protected:
@@ -1493,7 +1494,7 @@ public:
 		key=_key;
 	}
 	void Active(bool yesno) {
-		KEYBOARD_AddKey(key,yesno);
+		Platform_InputKey(key,yesno);
 	};
 	KBD_KEYS key;
 };

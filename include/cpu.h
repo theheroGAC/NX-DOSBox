@@ -81,6 +81,12 @@ Bits CPU_Core_Dynrec_Trap_Run(void);
 Bits CPU_Core_Prefetch_Run(void);
 Bits CPU_Core_Prefetch_Trap_Run(void);
 
+/* The HLT wait is not a register that can be copied: it is the decoder that is
+ * current. A save state has to put it back, so it asks these two instead of
+ * knowing how the wait is spelled. */
+bool CPU_IsHalted(void);
+void CPU_SetHalted(bool halted);
+
 void CPU_Enable_SkipAutoAdjust(void);
 void CPU_Disable_SkipAutoAdjust(void);
 void CPU_Reset_AutoAdjust(void);

@@ -20,7 +20,6 @@
 #include <string.h>
 #include <math.h>
 #include "dosbox.h"
-#include "video.h"
 #include "render.h"
 #include "../gui/render_scalers.h"
 #include "vga.h"
@@ -1607,6 +1606,34 @@ void VGA_SetupDrawing(Bitu /*val*/) {
 			RENDER_SetSize(width, height, bpp, (float)fps, aspect_ratio,
 			doublewidth, doubleheight);
 	}
+}
+
+void VGA_ResetDrawState(void) {
+	/* The events first: a session that was thrown out mid frame leaves a
+	 * VGA_DrawPart or VGA_DrawSingleLine queued, and those handlers reach
+	 * straight into the drawing state that is about to be cleared. */
+	PIC_RemoveEvents(VGA_DrawPart);
+	PIC_RemoveEvents(VGA_DrawSingleLine);
+	PIC_RemoveEvents(VGA_DrawEGASingleLine);
+	vga.draw.parts_left	= 0;
+	vga.draw.lines_done	= ~0;
+	vga.draw.lines_total	= ~0;
+	/* Only the geometry the change test in VGA_SetupDrawing() compares. The
+	 * registers, the memory and the mode are VGA_Init()'s business and are
+	 * left alone: this runs while the process is between two machines, not
+	 * instead of an init. Zeroing these is what makes the next
+	 * VGA_SetupDrawing() take the branch that calls RENDER_SetSize(). */
+	vga.draw.width		= 0;
+	vga.draw.height		= 0;
+	vga.draw.bpp		= 0;
+	vga.draw.aspect_ratio	= 0.0;
+	vga.draw.doublewidth	= false;
+	vga.draw.doubleheight	= false;
+	vga.draw.resizing	= false;
+	/* The vertical timing is compared the same way, with vtotal against the
+	 * fps the new mode asks for, so it has to go too or the first mode of the
+	 * next game that keeps its refresh rate skips the resize as well. */
+	vga.draw.delay.vtotal	= 0.0;
 }
 
 void VGA_KillDrawing(void) {

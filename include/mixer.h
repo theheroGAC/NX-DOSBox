@@ -104,6 +104,12 @@ public:
 
 MixerChannel * MIXER_AddChannel(MIXER_Handler handler,Bitu freq,const char * name);
 MixerChannel * MIXER_FindChannel(const char * name);
+
+/* Master volume, applied to every channel at once. MIXER.COM and the console
+ * pause menu both need it, and neither can reach into the mixer's file local
+ * state: 1.0 is the unattenuated mix, 0.0 is silence. */
+void MIXER_SetMasterVolume(float volume);
+float MIXER_GetMasterVolume(void);
 /* Find the device you want to delete with findchannel "delchan gets deleted" */
 void MIXER_DelChannel(MixerChannel* delchan); 
 

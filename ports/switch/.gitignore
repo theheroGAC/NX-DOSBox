@@ -1,0 +1,17 @@
+# Build outputs. The root .gitignore un-ignores ports/*/Makefile, so this
+# directory is meant to be tracked, and without these three lines the next
+# `git add ports` commits a 20MB ELF and a 3MB NRO next to the sources.
+out/
+build/
+*.nro
+*.elf
+*.nacp
+build.ninja
+# Logs from make and from the tools this directory drives.
+*.log
+*.err
+
+# gen_icon.ps1 writes icon.jpg, but the icon is part of the product rather than
+# an output: it is embedded in the NRO by the build, and it is the one thing a
+# change to the palette has to keep in sync, so it stays in the tree.
+!icon.jpg

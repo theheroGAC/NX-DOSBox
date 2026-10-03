@@ -69,6 +69,11 @@
 /* Define to 1 if you want serial passthrough support. */
 #define C_DIRECTSERIAL 1
 
+/* Define to 1 to use the SDL keyboard lock-key handling */
+#define C_SDL_KEYBOARD 1
+/* Define to 1 to use the SDL CD-ROM interface */
+#define C_SDL_CDROM 1
+
 #define GCC_ATTRIBUTE(x) /* attribute not supported */
 #define GCC_UNLIKELY(x) (x)
 #define GCC_LIKELY(x) (x)

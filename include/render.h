@@ -100,5 +100,13 @@ void RENDER_SetPal(Bit8u entry,Bit8u red,Bit8u green,Bit8u blue);
 bool RENDER_GetForceUpdate(void);
 void RENDER_SetForceUpdate(bool);
 
+/* Returns the renderer to the state a machine that has just been thrown out
+ * of cannot be trusted to have left it in. A console front end starts a whole
+ * machine per game inside one process, so this belongs next to
+ * TIMER_ClearTickHandlers() rather than in the machine teardown: `render` lives
+ * in the BSS and outlives the Config object an exception takes with it. Called
+ * from the port's session teardown, never from the core. */
+void RENDER_ResetSession(void);
+
 
 #endif

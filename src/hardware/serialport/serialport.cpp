@@ -16,11 +16,13 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
+/* Modified for the standalone platform service boundary, 2026. */
 
 #include <string.h>
 #include <ctype.h>
 
 #include "dosbox.h"
+#include "platform.h"
 
 #include "inout.h"
 #include "pic.h"
@@ -202,7 +204,7 @@ void CSerial::log_ser(bool active, char const* format,...) {
 		// copied from DEBUG_SHOWMSG
 		char buf[512];
 		buf[0]=0;
-		sprintf(buf,"%12.3f [% 7u] ",PIC_FullIndex(), SDL_GetTicks());
+		sprintf(buf,"%12.3f [% 7u] ",PIC_FullIndex(), Platform_GetTicks());
 		va_list msg;
 		va_start(msg,format);
 		vsprintf(buf+strlen(buf),format,msg);

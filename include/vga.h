@@ -455,6 +455,16 @@ void VGA_KillDrawing(void);
 
 void VGA_SetOverride(bool vga_override);
 
+/* Forgets the drawing geometry of a machine that has just been thrown out of,
+ * for the same reason RENDER_ResetSession() forgets the renderer's: VGA_Init()
+ * reinitialises the registers and the memory but leaves the dimensions of the
+ * last session in vga.draw, and VGA_SetupDrawing() only rebuilds the output
+ * surface when they differ from what it is asked for now. A second game that
+ * picks the same mode as the first therefore never reaches RENDER_SetSize() and
+ * never gets a picture at all. Zeroing the geometry is what makes the next
+ * VGA_SetupDrawing() see a change and go through it. */
+void VGA_ResetDrawState(void);
+
 extern VGA_Type vga;
 
 /* Support for modular SVGA implementation */

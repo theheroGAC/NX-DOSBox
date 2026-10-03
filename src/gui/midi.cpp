@@ -16,13 +16,13 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
+/* Modified for the standalone platform service boundary, 2026. */
+
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
 #include <string>
 #include <algorithm>
-
-#include "SDL.h"
 
 #include "dosbox.h"
 #include "midi.h"
@@ -85,7 +85,7 @@ MidiHandler Midi_none;
 
 #include "midi_win32.h"
 
-#else
+#elif defined (C_SUPPORTS_OSS)
 
 #include "midi_oss.h"
 
@@ -97,12 +97,14 @@ MidiHandler Midi_none;
 
 #endif
 
+#include "midi_tsf.h"
+
 DB_Midi midi;
 
 void MIDI_RawOutByte(Bit8u data) {
 	if (midi.sysex.start) {
 		Bit32u passed_ticks = GetTicks() - midi.sysex.start;
-		if (passed_ticks < midi.sysex.delay) SDL_Delay(midi.sysex.delay - passed_ticks);
+		if (passed_ticks < midi.sysex.delay) Platform_Delay(midi.sysex.delay - passed_ticks);
 	}
 
 	/* Test for a realtime MIDI message */
@@ -191,7 +193,12 @@ public:
 		if (!strcasecmp(dev,"default")) goto getdefault;
 		handler=handler_list;
 		while (handler) {
-			if (!strcasecmp(dev,handler->GetName())) {
+			bool match = !strcasecmp(dev, handler->GetName());
+			if (!match && !strcasecmp(handler->GetName(), "synth")) {
+				if (!strcasecmp(dev, "soundfont") || !strcasecmp(dev, "tsf"))
+					match = true;
+			}
+			if (match) {
 				if (!handler->Open(conf)) {
 					LOG_MSG("MIDI: Can't open device:%s with config:%s.",dev,conf);
 					goto getdefault;

@@ -32,7 +32,7 @@
 #include "support.h"
 #include "setup.h"
 
-#if !defined(WIN32)
+#if !defined(WIN32) && !defined(HAVE_DIRNAME)
 #include <libgen.h>
 #else
 #include <string.h>
@@ -139,7 +139,7 @@ CDROM_Interface_Image::CDROM_Interface_Image(Bit8u subUnit)
 {
 	images[subUnit] = this;
 	if (refCount == 0) {
-		player.mutex = SDL_CreateMutex();
+		player.mutex = Platform_MutexCreate();
 		if (!player.channel) {
 			player.channel = MIXER_AddChannel(&CDAudioCallBack, 44100, "CDAUDIO");
 		}
@@ -154,7 +154,7 @@ CDROM_Interface_Image::~CDROM_Interface_Image()
 	if (player.cd == this) player.cd = NULL;
 	ClearTracks();
 	if (refCount == 0) {
-		SDL_DestroyMutex(player.mutex);
+		Platform_MutexDestroy(player.mutex);
 		player.channel->Enable(false);
 	}
 }
@@ -229,7 +229,7 @@ bool CDROM_Interface_Image::GetMediaTrayStatus(bool& mediaPresent, bool& mediaCh
 bool CDROM_Interface_Image::PlayAudioSector(unsigned long start,unsigned long len)
 {
 	// We might want to do some more checks. E.g valid start and length
-	SDL_mutexP(player.mutex);
+	Platform_MutexLock(player.mutex);
 	player.cd = this;
 	player.bufLen = 0;
 	player.currFrame = start;
@@ -243,7 +243,7 @@ bool CDROM_Interface_Image::PlayAudioSector(unsigned long start,unsigned long le
 		//Real drives either fail or succeed as well
 	} else player.isPlaying = true;
 	player.isPaused = false;
-	SDL_mutexV(player.mutex);
+	Platform_MutexUnlock(player.mutex);
 	return true;
 }
 
@@ -326,7 +326,7 @@ void CDROM_Interface_Image::CDAudioCallBack(Bitu len)
 		return;
 	}
 	
-	SDL_mutexP(player.mutex);
+	Platform_MutexLock(player.mutex);
 	while (player.bufLen < (Bits)len) {
 		bool success;
 		if (player.targetFrame > player.currFrame)
@@ -365,7 +365,7 @@ void CDROM_Interface_Image::CDAudioCallBack(Bitu len)
 #endif
 	memmove(player.buffer, &player.buffer[len], player.bufLen - len);
 	player.bufLen -= len;
-	SDL_mutexV(player.mutex);
+	Platform_MutexUnlock(player.mutex);
 }
 
 bool CDROM_Interface_Image::LoadIsoFile(char* filename)
@@ -425,19 +425,22 @@ bool CDROM_Interface_Image::CanReadPVD(TrackFile *file, int sectorSize, bool mod
 			(pvd[8] == 1 && !strncmp((char*)(&pvd[9]), "CDROM", 5) && pvd[14] == 1));
 }
 
-#if defined(WIN32)
+#if defined(WIN32) || defined(HAVE_DIRNAME)
+/* POSIX dirname() is not provided by every C library (the devkitA64 and
+ * vitasdk newlib builds used for the console ports leave it out), so the
+ * function DOSBox needs is provided here. It has the same contract as
+ * dirname(3): the argument may be modified and the result points into it. */
 static string dirname(char * file) {
-	char * sep = strrchr(file, '\\');
+	char * sep = strrchr(file, '/');
+#ifdef WIN32
+	sep = strrchr(file, '\\');
 	if (sep == NULL)
 		sep = strrchr(file, '/');
+#endif
 	if (sep == NULL)
 		return "";
-	else {
-		int len = (int)(sep - file);
-		char tmp[MAX_FILENAME_LENGTH];
-		safe_strncpy(tmp, file, len+1);
-		return tmp;
-	}
+	*sep = '\0';
+	return file;
 }
 #endif
 

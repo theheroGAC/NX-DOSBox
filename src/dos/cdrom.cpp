@@ -26,9 +26,19 @@
 #include <unistd.h>
 
 #include "dosbox.h"
+#if C_SDL_CDROM
 #include "SDL.h"
+#endif
 #include "support.h"
 #include "cdrom.h"
+
+#if C_SDL_CDROM
+
+/* The shared CD interface header keeps this handle opaque; only the SDL CD
+ * backend touches the SDL_CD contents. */
+static inline SDL_CD *CDROM_SDL_CD(void *cd) {
+	return static_cast<SDL_CD *>(cd);
+}
 
 CDROM_Interface_SDL::CDROM_Interface_SDL(void) {
 	driveID		= 0;
@@ -38,7 +48,7 @@ CDROM_Interface_SDL::CDROM_Interface_SDL(void) {
 
 CDROM_Interface_SDL::~CDROM_Interface_SDL(void) {
 	StopAudio();
-	SDL_CDClose(cd);
+	SDL_CDClose(CDROM_SDL_CD(cd));
 	cd		= 0;
 }
 
@@ -51,7 +61,7 @@ bool CDROM_Interface_SDL::SetDevice(char* path, int forceCD) {
 	if ((forceCD>=0) && (forceCD<num)) {
 		driveID = forceCD;
 	        cd = SDL_CDOpen(driveID);
-	        SDL_CDStatus(cd);
+	        SDL_CDStatus(CDROM_SDL_CD(cd));
 	   	return true;
 	};	
 	
@@ -60,7 +70,7 @@ bool CDROM_Interface_SDL::SetDevice(char* path, int forceCD) {
 		cdname = SDL_CDName(i);
 		if (strcmp(buffer,cdname)==0) {
 			cd = SDL_CDOpen(i);
-			SDL_CDStatus(cd);
+			SDL_CDStatus(CDROM_SDL_CD(cd));
 			driveID = i;
 			return true;
 		};
@@ -69,79 +79,109 @@ bool CDROM_Interface_SDL::SetDevice(char* path, int forceCD) {
 }
 
 bool CDROM_Interface_SDL::GetAudioTracks(int& stTrack, int& end, TMSF& leadOut) {
+	SDL_CD *cdrom = CDROM_SDL_CD(cd);
 
-	if (CD_INDRIVE(SDL_CDStatus(cd))) {
+	if (CD_INDRIVE(SDL_CDStatus(cdrom))) {
 		stTrack		= 1;
-		end			= cd->numtracks;
-		FRAMES_TO_MSF(cd->track[cd->numtracks].offset,&leadOut.min,&leadOut.sec,&leadOut.fr);
+		end			= cdrom->numtracks;
+		FRAMES_TO_MSF(cdrom->track[cdrom->numtracks].offset,&leadOut.min,&leadOut.sec,&leadOut.fr);
 	}
-	return CD_INDRIVE(SDL_CDStatus(cd));
+	return CD_INDRIVE(SDL_CDStatus(cdrom));
 }
 
 bool CDROM_Interface_SDL::GetAudioTrackInfo(int track, TMSF& start, unsigned char& attr) {
-	if (CD_INDRIVE(SDL_CDStatus(cd))) {
-		FRAMES_TO_MSF(cd->track[track-1].offset,&start.min,&start.sec,&start.fr);
-		attr	= cd->track[track-1].type<<4;//sdl uses 0 for audio and 4 for data. instead of 0x00 and 0x40
+	SDL_CD *cdrom = CDROM_SDL_CD(cd);
+	if (CD_INDRIVE(SDL_CDStatus(cdrom))) {
+		FRAMES_TO_MSF(cdrom->track[track-1].offset,&start.min,&start.sec,&start.fr);
+		attr	= cdrom->track[track-1].type<<4;//sdl uses 0 for audio and 4 for data. instead of 0x00 and 0x40
 	}
-	return CD_INDRIVE(SDL_CDStatus(cd));	
+	return CD_INDRIVE(SDL_CDStatus(cdrom));
 }
 
 bool CDROM_Interface_SDL::GetAudioSub(unsigned char& attr, unsigned char& track, unsigned char& index, TMSF& relPos, TMSF& absPos) {
-	if (CD_INDRIVE(SDL_CDStatus(cd))) {
-		track	= cd->cur_track;
-		index	= cd->cur_track;
-		attr	= cd->track[track].type<<4;
-		FRAMES_TO_MSF(cd->cur_frame,&relPos.min,&relPos.sec,&relPos.fr);
-		FRAMES_TO_MSF(cd->cur_frame+cd->track[track].offset,&absPos.min,&absPos.sec,&absPos.fr);
+	SDL_CD *cdrom = CDROM_SDL_CD(cd);
+	if (CD_INDRIVE(SDL_CDStatus(cdrom))) {
+		track	= cdrom->cur_track;
+		index	= cdrom->cur_track;
+		attr	= cdrom->track[track].type<<4;
+		FRAMES_TO_MSF(cdrom->cur_frame,&relPos.min,&relPos.sec,&relPos.fr);
+		FRAMES_TO_MSF(cdrom->cur_frame+cdrom->track[track].offset,&absPos.min,&absPos.sec,&absPos.fr);
 	}
-	return CD_INDRIVE(SDL_CDStatus(cd));		
+	return CD_INDRIVE(SDL_CDStatus(cdrom));
 }
 
 bool CDROM_Interface_SDL::GetAudioStatus(bool& playing, bool& pause){
-	if (CD_INDRIVE(SDL_CDStatus(cd))) {
-		playing = (cd->status==CD_PLAYING);
-		pause	= (cd->status==CD_PAUSED);
+	SDL_CD *cdrom = CDROM_SDL_CD(cd);
+	if (CD_INDRIVE(SDL_CDStatus(cdrom))) {
+		playing = (cdrom->status==CD_PLAYING);
+		pause	= (cdrom->status==CD_PAUSED);
 	}
-	return CD_INDRIVE(SDL_CDStatus(cd));
+	return CD_INDRIVE(SDL_CDStatus(cdrom));
 }
 	
 bool CDROM_Interface_SDL::GetMediaTrayStatus(bool& mediaPresent, bool& mediaChanged, bool& trayOpen) {
-	SDL_CDStatus(cd);
-	mediaPresent = (cd->status!=CD_TRAYEMPTY) && (cd->status!=CD_ERROR);
-	mediaChanged = (oldLeadOut!=cd->track[cd->numtracks].offset);
+	SDL_CD *cdrom = CDROM_SDL_CD(cd);
+	SDL_CDStatus(cdrom);
+	mediaPresent = (cdrom->status!=CD_TRAYEMPTY) && (cdrom->status!=CD_ERROR);
+	mediaChanged = (oldLeadOut!=cdrom->track[cdrom->numtracks].offset);
 	trayOpen	 = !mediaPresent;
-	oldLeadOut	 = cd->track[cd->numtracks].offset;
-	if (mediaChanged) SDL_CDStatus(cd);
+	oldLeadOut	 = cdrom->track[cdrom->numtracks].offset;
+	if (mediaChanged) SDL_CDStatus(cdrom);
 	return true;
 }
 
 bool CDROM_Interface_SDL::PlayAudioSector(unsigned long start,unsigned long len) { 
 	// Has to be there, otherwise wrong cd status report (dunno why, sdl bug ?)
-	SDL_CDClose(cd);
+	SDL_CDClose(CDROM_SDL_CD(cd));
 	cd = SDL_CDOpen(driveID);
-	bool success = (SDL_CDPlay(cd,start+150,len)==0);
+	bool success = (SDL_CDPlay(CDROM_SDL_CD(cd),start+150,len)==0);
 	return success;
 }
 
 bool CDROM_Interface_SDL::PauseAudio(bool resume) { 
 	bool success;
-	if (resume) success = (SDL_CDResume(cd)==0);
-	else		success = (SDL_CDPause (cd)==0);
+	if (resume) success = (SDL_CDResume(CDROM_SDL_CD(cd))==0);
+	else		success = (SDL_CDPause (CDROM_SDL_CD(cd))==0);
 	return success;
 }
 
 bool CDROM_Interface_SDL::StopAudio(void) {
 	// Has to be there, otherwise wrong cd status report (dunno why, sdl bug ?)
-	SDL_CDClose(cd);
+	SDL_CDClose(CDROM_SDL_CD(cd));
 	cd = SDL_CDOpen(driveID);
-	bool success = (SDL_CDStop(cd)==0);
+	bool success = (SDL_CDStop(CDROM_SDL_CD(cd))==0);
 	return success;
 }
 
 bool CDROM_Interface_SDL::LoadUnloadMedia(bool unload) {
-	bool success = (SDL_CDEject(cd)==0);
+	bool success = (SDL_CDEject(CDROM_SDL_CD(cd))==0);
 	return success;
 }
+
+int CDROM_GetDriveCount(void) {
+	return SDL_CDNumDrives();
+}
+
+const char *CDROM_GetDriveName(int index) {
+	return SDL_CDName(index);
+}
+
+#endif /* C_SDL_CDROM */
+
+#if !C_SDL_CDROM
+
+/* Targets without an optical drive report no physical CD-ROM units; the
+ * ISO/CUE backend in cdrom_image.cpp still works. */
+int CDROM_GetDriveCount(void) {
+	return 0;
+}
+
+const char *CDROM_GetDriveName(int index) {
+	(void)index;
+	return "";
+}
+
+#endif /* !C_SDL_CDROM */
 
 int CDROM_GetMountType(char* path, int forceCD) {
 // 0 - physical CDROM
@@ -157,7 +197,7 @@ int CDROM_GetMountType(char* path, int forceCD) {
 	upcase(buffer);
 #endif
 
-	int num = SDL_CDNumDrives();
+	int num = CDROM_GetDriveCount();
 	// If cd drive is forced then check if its in range and return 0
 	if ((forceCD>=0) && (forceCD<num)) {
 		LOG(LOG_ALL,LOG_ERROR)("CDROM: Using drive %d",forceCD);
@@ -166,7 +206,7 @@ int CDROM_GetMountType(char* path, int forceCD) {
 
 	// compare names
 	for (int i=0; i<num; i++) {
-		cdName = SDL_CDName(i);
+		cdName = CDROM_GetDriveName(i);
 		if (strcmp(buffer,cdName)==0) return 0;
 	};
 	

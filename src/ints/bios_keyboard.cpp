@@ -25,16 +25,20 @@
 #include "regs.h"
 #include "inout.h"
 #include "dos_inc.h"
+#if C_SDL_KEYBOARD
 #include "SDL.h"
+#endif
 
 /* SDL by default treats numlock and scrolllock different from all other keys.
  * In recent versions this can disabled by a environment variable which we set in sdlmain.cpp
  * Define the following if this is the case */
+#if C_SDL_KEYBOARD
 #if SDL_VERSION_ATLEAST(1, 2, 14)
 #define CAN_USE_LOCK 1
 /* For lower versions of SDL we also use a slight hack to get the startup states of numclock and capslock right.
  * The proper way is in the mapper, but the repeating key is an unwanted side effect for lower versions of SDL */
 #endif
+#endif /* C_SDL_KEYBOARD */
 
 static Bitu call_int16,call_irq1,call_irq6;
 
@@ -591,9 +595,13 @@ static Bitu INT16_Handler(void) {
 	return CBRET_NONE;
 }
 
-//Keyboard initialisation. src/gui/sdlmain.cpp
+//Keyboard initialisation. The lock key state is a property of the host
+//keyboard, so it only exists on the SDL front end; a console has no host lock
+//keys and simply starts with both released.
+#if C_SDL_KEYBOARD
 extern bool startup_state_numlock;
 extern bool startup_state_capslock;
+#endif
 
 static void InitBiosSegment(void) {
 	/* Setup the variables for keyboard in the bios data segment */
@@ -604,11 +612,12 @@ static void InitBiosSegment(void) {
 	Bit8u flag1 = 0;
 	Bit8u leds = 16; /* Ack received */
 
-#if SDL_VERSION_ATLEAST(1, 2, 14)
-//Nothing, mapper handles all.
-#else
+#if C_SDL_KEYBOARD
+#if !SDL_VERSION_ATLEAST(1, 2, 14)
+	/* For SDL older than 1.2.14 the mapper does not cover the lock keys yet. */
 	if (startup_state_capslock) { flag1|=0x40; leds|=0x04;}
 	if (startup_state_numlock)  { flag1|=0x20; leds|=0x02;}
+#endif
 #endif
 
 	mem_writeb(BIOS_KEYBOARD_FLAGS1,flag1);

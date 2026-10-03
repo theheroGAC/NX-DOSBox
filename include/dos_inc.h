@@ -192,6 +192,14 @@ void DOS_SetupMisc(void);
 /* The DOS Tables */
 void DOS_SetupTables(void);
 
+/* Hands the private segment range DOS_GetMemory() hands out from back to the
+ * start of the range. Called once per machine, before any module asks for a
+ * page: the range is rebuilt from scratch for every machine, so a front end that
+ * starts more than one machine in a process has to give it back, or the budget
+ * runs out and DOS_GetMemory() aborts the machine with "Not enough memory for
+ * internal tables". See DOS_ResetPrivateMemory() in src/dos/dos_tables.cpp. */
+void DOS_ResetPrivateMemory(void);
+
 /* Internal DOS Setup Programs */
 void DOS_SetupPrograms(void);
 

@@ -496,8 +496,22 @@ public:
 
 static AUTOEXEC* test;
 
+/* The autoexec lines live in the file static list autoexec_strings, which
+ * outlives a machine. This module (and with it its AutoexecObject members) is
+ * what puts the lines there, so it is also what has to take them away again: a
+ * console front end starts the machine again for every game the launcher picks,
+ * and without this the previous game's mount and start commands are still in
+ * the list and are written into the next AUTOEXEC.BAT as well. That made the
+ * second game mount the first game's folder and run its start command before
+ * its own, which ends in "already mounted" errors and the wrong game. */
+static void AUTOEXEC_ShutDown(Section * /*sec*/) {
+	delete test;
+	test = 0;
+}
+
 void AUTOEXEC_Init(Section * sec) {
 	test = new AUTOEXEC(sec);
+	sec->AddDestroyFunction(&AUTOEXEC_ShutDown, true);
 }
 
 static Bitu INT2E_Handler(void) {
@@ -598,7 +612,7 @@ void SHELL_Init() {
 		"\033[44;1m\xC9\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD"
 		"\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD"
 		"\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xCD\xBB\n"
-		"\xBA \033[32mWelcome to DOSBox %-8s\033[37m                                         \xBA\n"
+		"\xBA \033[32mWelcome to NX-DOSBox %-8s\033[37m                                      \xBA\n"
 		"\xBA                                                                    \xBA\n"
 //		"\xBA DOSBox runs real and protected mode games.                         \xBA\n"
 		"\xBA For a short introduction for new users type: \033[33mINTRO\033[37m                 \xBA\n"

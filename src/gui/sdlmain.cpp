@@ -36,7 +36,8 @@
 #include "SDL.h"
 
 #include "dosbox.h"
-#include "video.h"
+#include "platform.h"
+#include "sdl_video.h"
 #include "mouse.h"
 #include "pic.h"
 #include "timer.h"
@@ -460,7 +461,7 @@ extern bool CPU_CycleAutoAdjust;
 bool startup_state_numlock=false;
 bool startup_state_capslock=false;
 
-void GFX_SetTitle(Bit32s cycles,int frameskip,bool paused){
+void SDL_SetStatusTitle(Bit32s cycles,int frameskip,bool paused){
 	char title[200] = { 0 };
 	static Bit32s internal_cycles = 0;
 	static int internal_frameskip = 0;
@@ -505,7 +506,7 @@ static void PauseDOSBox(bool pressed) {
 		return;
 	SDLMod inkeymod = SDL_GetModState();
 
-	GFX_SetTitle(-1,-1,true);
+	SDL_SetStatusTitle(-1,-1,true);
 	bool paused = true;
 	SDL_Delay(500);
 	SDL_Event event;
@@ -530,7 +531,7 @@ static void PauseDOSBox(bool pressed) {
 					//Which is tricky due to possible use of scancodes.
 				}
 				paused = false;
-				GFX_SetTitle(-1,-1,false);
+				SDL_SetStatusTitle(-1,-1,false);
 				break;
 			}
 #if defined (MACOSX)
@@ -622,7 +623,7 @@ check_gotbpp:
 void GFX_ResetScreen(void) {
 	GFX_Stop();
 	if (sdl.draw.callback)
-		(sdl.draw.callback)( GFX_CallBackReset );
+		(sdl.draw.callback)(GFX_CallBackReset);
 	GFX_Start();
 	CPU_Reset_AutoAdjust();
 }
@@ -847,7 +848,7 @@ dosurface:
 				SDL_InitSubSystem(SDL_INIT_VIDEO);
 				GFX_SetIcon(); //Set Icon again
 				sdl.surface = SDL_SetVideoMode_Wrap(width,height,bpp,SDL_HWSURFACE);
-				if(sdl.surface) GFX_SetTitle(-1,-1,false); //refresh title.
+				if(sdl.surface) SDL_SetStatusTitle(-1,-1,false); //refresh title.
 			}
 #endif
 			if (sdl.surface == NULL)
@@ -1204,7 +1205,7 @@ void GFX_UpdateSDLCaptureState(void) {
 		if (sdl.mouse.autoenable || !sdl.mouse.autolock) SDL_ShowCursor(SDL_ENABLE);
 	}
 	CPU_Reset_AutoAdjust();
-	GFX_SetTitle(-1,-1,false);
+	SDL_SetStatusTitle(-1,-1,false);
 }
 
 bool mouselocked; //Global variable for mapper
@@ -1463,7 +1464,7 @@ void GFX_EndUpdate( const Bit16u *changedLines ) {
 
 
 void GFX_SetPalette(Bitu start,Bitu count,GFX_PalEntry * entries) {
-	/* I should probably not change the GFX_PalEntry :) */
+	/* I should probably not change the palette entry layout :) */
 	if (sdl.surface->flags & SDL_HWPALETTE) {
 		if (!SDL_SetPalette(sdl.surface,SDL_PHYSPAL,(SDL_Color *)entries,start,count)) {
 			E_Exit("SDL:Can't set palette");
@@ -1511,7 +1512,7 @@ void GFX_Start() {
 
 static void GUI_ShutDown(Section * /*sec*/) {
 	GFX_Stop();
-	if (sdl.draw.callback) (sdl.draw.callback)( GFX_CallBackStop );
+	if (sdl.draw.callback) (sdl.draw.callback)(GFX_CallBackStop);
 	if (sdl.mouse.locked) GFX_CaptureMouse();
 	if (sdl.desktop.fullscreen) GFX_SwitchFullScreen();
 }
@@ -1969,6 +1970,7 @@ static void GUI_StartUp(Section * sec) {
 	if(keystate&KMOD_CAPS) startup_state_capslock = true;
 }
 
+/* Modified for the standalone input service boundary, 2026. */
 void Mouse_AutoLock(bool enable) {
 	sdl.mouse.autolock=enable;
 	if (sdl.mouse.autoenable) sdl.mouse.requestlock=enable;
@@ -1980,11 +1982,11 @@ void Mouse_AutoLock(bool enable) {
 
 static void HandleMouseMotion(SDL_MouseMotionEvent * motion) {
 	if (sdl.mouse.locked || !sdl.mouse.autoenable)
-		Mouse_CursorMoved((float)motion->xrel*sdl.mouse.xsensitivity/100.0f,
-						  (float)motion->yrel*sdl.mouse.ysensitivity/100.0f,
-						  (float)(motion->x-sdl.clip.x)/(sdl.clip.w-1)*sdl.mouse.xsensitivity/100.0f,
-						  (float)(motion->y-sdl.clip.y)/(sdl.clip.h-1)*sdl.mouse.ysensitivity/100.0f,
-						  sdl.mouse.locked);
+		Platform_InputMouseMove((float)motion->xrel*sdl.mouse.xsensitivity/100.0f,
+							(float)motion->yrel*sdl.mouse.ysensitivity/100.0f,
+							(float)(motion->x-sdl.clip.x)/(sdl.clip.w-1)*sdl.mouse.xsensitivity/100.0f,
+							(float)(motion->y-sdl.clip.y)/(sdl.clip.h-1)*sdl.mouse.ysensitivity/100.0f,
+							sdl.mouse.locked);
 }
 
 static void HandleMouseButton(SDL_MouseButtonEvent * button) {
@@ -2001,26 +2003,26 @@ static void HandleMouseButton(SDL_MouseButtonEvent * button) {
 		}
 		switch (button->button) {
 		case SDL_BUTTON_LEFT:
-			Mouse_ButtonPressed(0);
+			Platform_InputMouseButton(0,true);
 			break;
 		case SDL_BUTTON_RIGHT:
-			Mouse_ButtonPressed(1);
+			Platform_InputMouseButton(1,true);
 			break;
 		case SDL_BUTTON_MIDDLE:
-			Mouse_ButtonPressed(2);
+			Platform_InputMouseButton(2,true);
 			break;
 		}
 		break;
 	case SDL_RELEASED:
 		switch (button->button) {
 		case SDL_BUTTON_LEFT:
-			Mouse_ButtonReleased(0);
+			Platform_InputMouseButton(0,false);
 			break;
 		case SDL_BUTTON_RIGHT:
-			Mouse_ButtonReleased(1);
+			Platform_InputMouseButton(1,false);
 			break;
 		case SDL_BUTTON_MIDDLE:
-			Mouse_ButtonReleased(2);
+			Platform_InputMouseButton(2,false);
 			break;
 		}
 		break;
@@ -2134,12 +2136,12 @@ void GFX_Events() {
 					bool paused = true;
 					SDL_Event ev;
 
-					GFX_SetTitle(-1,-1,true);
+					SDL_SetStatusTitle(-1,-1,true);
 					KEYBOARD_ClrBuffer();
-//					SDL_Delay(500);
-//					while (SDL_PollEvent(&ev)) {
+					SDL_Delay(500);
+					while (SDL_PollEvent(&ev)) {
 						// flush event queue.
-//					}
+					}
 
 					while (paused) {
 						// WaitEvent waits for an event rather than polling, so CPU usage drops to zero
@@ -2152,17 +2154,21 @@ void GFX_Events() {
 								// We've got focus back, so unpause and break out of the loop
 								if (ev.active.gain) {
 									paused = false;
-									GFX_SetTitle(-1,-1,false);
+									SDL_SetStatusTitle(-1,-1,false);
 									SetPriority(sdl.priority.focus);
 									CPU_Disable_SkipAutoAdjust();
+									
+									// Clear keyboard buffer and mapper state to prevent stuck keys
+									KEYBOARD_ClrBuffer();
+									MAPPER_LosingFocus();
 								}
 
 								/* Now poke a "release ALT" command into the keyboard buffer
 								 * we have to do this, otherwise ALT will 'stick' and cause
 								 * problems with the app running in the DOSBox.
 								 */
-								KEYBOARD_AddKey(KBD_leftalt, false);
-								KEYBOARD_AddKey(KBD_rightalt, false);
+								Platform_InputKey(KBD_leftalt, false);
+								Platform_InputKey(KBD_rightalt, false);
 							}
 							break;
 						}
@@ -2184,7 +2190,7 @@ void GFX_Events() {
 			throw(0);
 			break;
 		case SDL_VIDEOEXPOSE:
-			if (sdl.draw.callback) sdl.draw.callback( GFX_CallBackRedraw );
+			if (sdl.draw.callback) sdl.draw.callback(GFX_CallBackRedraw);
 			break;
 #ifdef WIN32
 		case SDL_KEYDOWN:
@@ -2235,6 +2241,15 @@ static BOOL WINAPI ConsoleEventHandler(DWORD event) {
 /* static variable to show wether there is not a valid stdout.
  * Fixes some bugs when -noconsole is used in a read only directory */
 static bool no_stdout = false;
+void SDL_ShowMessageV(char const* format, va_list msg) {
+	char buf[512];
+
+	vsnprintf(buf,sizeof(buf),format,msg);
+	buf[sizeof(buf) - 1] = '\0';
+	if (!no_stdout) puts(buf); //Else buf is parsed again. (puts adds end of line)
+}
+
+/* Kept for the sources that call GFX_ShowMsg directly. */
 void GFX_ShowMsg(char const* format,...) {
 	char buf[512];
 
@@ -2394,6 +2409,7 @@ static void launcheditor() {
 extern void DEBUG_ShutDown(Section * /*sec*/);
 #endif
 
+/* Modified for platform audio/timing teardown, 2026. */
 void restart_program(std::vector<std::string> & parameters) {
 	char** newargs = new char* [parameters.size() + 1];
 	// parameter 0 is the executable path
@@ -2401,8 +2417,8 @@ void restart_program(std::vector<std::string> & parameters) {
 	// last one is NULL
 	for(Bitu i = 0; i < parameters.size(); i++) newargs[i] = (char*)parameters[i].c_str();
 	newargs[parameters.size()] = NULL;
-	SDL_CloseAudio();
-	SDL_Delay(50);
+	Platform_AudioClose();
+	Platform_Delay(50);
 	SDL_Quit();
 #if C_DEBUG
 	// shutdown curses

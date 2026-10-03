@@ -20,7 +20,7 @@
 #define _RENDER_SCALERS_H
 
 //#include "render.h"
-#include "video.h"
+#include "platform_video.h"
 
 #define SCALER_MAX_MUL_WIDTH  3
 #define SCALER_MAX_MUL_HEIGHT 3

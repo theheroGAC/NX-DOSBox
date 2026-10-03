@@ -120,6 +120,7 @@ private:
 class localFile : public DOS_File {
 public:
 	localFile(const char* name, FILE * handle);
+	virtual ~localFile();
 	bool Read(Bit8u * data,Bit16u * size);
 	bool Write(Bit8u * data,Bit16u * size);
 	bool Seek(Bit32u * pos,Bit32u type);
@@ -288,4 +289,5 @@ void DOS_AddDevice(DOS_Device * adddev);
 void DOS_DelDevice(DOS_Device * dev);
 
 void VFILE_Register(const char * name,Bit8u * data,Bit32u size);
+void VFILE_Remove(const char * name);
 #endif

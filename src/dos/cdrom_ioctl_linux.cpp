@@ -19,6 +19,7 @@
 
 #include <string.h>
 #include "cdrom.h"
+#include "SDL.h"
 #include "support.h"
 
 #if defined (LINUX)

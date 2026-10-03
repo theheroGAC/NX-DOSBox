@@ -21,6 +21,7 @@
 #include "mem.h"
 #include "inout.h"
 #include "setup.h"
+#include "savestate.h"
 #include "paging.h"
 #include "regs.h"
 
@@ -606,6 +607,29 @@ static MEMORY* test;
 static void MEM_ShutDown(Section * sec) {
 	delete test;
 }
+
+/* ------------------------------------------------------------- save state */
+
+/* The main memory, as a flat copy, plus the A20 gate.
+ *
+ * This is the one record that has to be exactly the size the header promised:
+ * the loaded state is refused unless its memory size matches the machine (see
+ * SAVESTATE_Load), which is what keeps this memcpy from running past the end of
+ * the allocation. The page handler table is deliberately not in the state: it
+ * describes the hardware that is installed, not what the software did with it,
+ * and a state always lands back in the same configuration.
+ *
+ * Registered first, so the records that follow can read the tables DOS keeps in
+ * this memory while they restore themselves. */
+static void SaveState_Memory(SaveState &state) {
+	const size_t size = (size_t)MEM_TotalPages() * MEM_PAGESIZE;
+	state.Bytes(MemBase, size);
+	bool a20 = MEM_A20_Enabled();
+	state.Bool(a20);
+	if (!state.Saving()) MEM_A20_Enable(a20);
+}
+
+SAVESTATE_BLOCK(memory, "MEM ", "main memory", SaveState_Memory);
 
 void MEM_Init(Section * sec) {
 	/* shutdown function */

@@ -23,6 +23,7 @@
 #include "bios_disk.h"
 #include "mapper.h"
 #include "support.h"
+#include "setup.h"
 
 bool WildFileCmp(const char * file, const char * wild) 
 {
@@ -221,18 +222,37 @@ int DriveManager::UnmountDrive(int drive) {
 	return result;
 }
 
-void DriveManager::Init(Section* /* sec */) {
-	
-	// setup driveInfos structure
+void DriveManager::ShutDown(void) {
 	currentDrive = 0;
 	for(int i = 0; i < DOS_DRIVES; i++) {
 		driveInfos[i].currentDisk = 0;
+		for (size_t d = 0; d < driveInfos[i].disks.size(); d++) {
+			DOS_Drive* disk = driveInfos[i].disks[d];
+			if (disk != NULL) {
+				if (disk == Drives[i]) {
+					Drives[i] = NULL;
+				}
+				for (size_t k = d + 1; k < driveInfos[i].disks.size(); k++) {
+					if (driveInfos[i].disks[k] == disk) {
+						driveInfos[i].disks[k] = NULL;
+					}
+				}
+				delete disk;
+			}
+		}
+		driveInfos[i].disks.clear();
 	}
-	
-//	MAPPER_AddHandler(&CycleDisk, MK_f3, MMOD1, "cycledisk", "Cycle Disk");
-//	MAPPER_AddHandler(&CycleDrive, MK_f3, MMOD2, "cycledrive", "Cycle Drv");
+}
+
+void DriveManager::Init(Section* /* sec */) {
+	ShutDown();
+}
+
+static void DRIVES_ShutDown(Section* /* sec */) {
+	DriveManager::ShutDown();
 }
 
 void DRIVES_Init(Section* sec) {
 	DriveManager::Init(sec);
+	sec->AddDestroyFunction(&DRIVES_ShutDown, false);
 }

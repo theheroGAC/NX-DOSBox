@@ -25,7 +25,7 @@
 #include <stdlib.h>
 
 #include "dosbox.h"
-#include "video.h"
+#include "platform.h"
 #include "render.h"
 #include "setup.h"
 #include "control.h"
@@ -41,7 +41,7 @@
 Render_t render;
 ScalerLineHandler_t RENDER_DrawLine;
 
-static void RENDER_CallBack( GFX_CallBackFunctions_t function );
+static void RENDER_CallBack(PlatformVideoCallbackAction action);
 
 static void Check_Palette(void) {
 	/* Clean up any previous changed palette data */
@@ -54,7 +54,7 @@ static void Check_Palette(void) {
 	Bitu i;
 	switch (render.scale.outMode) {
 	case scalerMode8:
-		GFX_SetPalette(render.pal.first,render.pal.last-render.pal.first+1,(GFX_PalEntry *)&render.pal.rgb[render.pal.first]);
+		PlatformVideo_SetPalette(render.pal.first,render.pal.last-render.pal.first+1,reinterpret_cast<const PlatformVideoPaletteEntry *>(&render.pal.rgb[render.pal.first]));
 		break;
 	case scalerMode15:
 	case scalerMode16:
@@ -62,7 +62,7 @@ static void Check_Palette(void) {
 			Bit8u r=render.pal.rgb[i].red;
 			Bit8u g=render.pal.rgb[i].green;
 			Bit8u b=render.pal.rgb[i].blue;
-			Bit16u newPal = GFX_GetRGB(r,g,b);
+			Bit16u newPal = PlatformVideo_GetRGB(r,g,b);
 			if (newPal != render.pal.lut.b16[i]) {
 				render.pal.changed = true;
 				render.pal.modified[i] = 1;
@@ -76,7 +76,7 @@ static void Check_Palette(void) {
 			Bit8u r=render.pal.rgb[i].red;
 			Bit8u g=render.pal.rgb[i].green;
 			Bit8u b=render.pal.rgb[i].blue;
-			Bit32u newPal = GFX_GetRGB(r,g,b);
+			Bit32u newPal = PlatformVideo_GetRGB(r,g,b);
 			if (newPal != render.pal.lut.b32[i]) {
 				render.pal.changed = true;
 				render.pal.modified[i] = 1;
@@ -107,7 +107,7 @@ static void RENDER_StartLineHandler(const void * s) {
 		Bitu *cache = (Bitu*)(render.scale.cacheRead);
 		for (Bits x=render.src.start;x>0;) {
 			if (GCC_UNLIKELY(src[0] != cache[0])) {
-				if (!GFX_StartUpdate( render.scale.outWrite, render.scale.outPitch )) {
+				if (!PlatformVideo_StartUpdate( render.scale.outWrite, render.scale.outPitch )) {
 					RENDER_DrawLine = RENDER_EmptyLineHandler;
 					return;
 				}
@@ -173,7 +173,7 @@ bool RENDER_StartUpdate(void) {
 	if (GCC_UNLIKELY( render.scale.clearCache) ) {
 //		LOG_MSG("Clearing cache");
 		//Will always have to update the screen with this one anyway, so let's update already
-		if (GCC_UNLIKELY(!GFX_StartUpdate( render.scale.outWrite, render.scale.outPitch )))
+		if (GCC_UNLIKELY(!PlatformVideo_StartUpdate( render.scale.outWrite, render.scale.outPitch )))
 			return false;
 		render.fullFrame = true;
 		render.scale.clearCache = false;
@@ -181,7 +181,7 @@ bool RENDER_StartUpdate(void) {
 	} else {
 		if (render.pal.changed) {
 			/* Assume pal changes always do a full screen update anyway */
-			if (GCC_UNLIKELY(!GFX_StartUpdate( render.scale.outWrite, render.scale.outPitch )))
+			if (GCC_UNLIKELY(!PlatformVideo_StartUpdate( render.scale.outWrite, render.scale.outPitch )))
 				return false;
 			RENDER_DrawLine = render.scale.linePalHandler;
 			render.fullFrame = true;
@@ -199,7 +199,7 @@ bool RENDER_StartUpdate(void) {
 
 static void RENDER_Halt( void ) {
 	RENDER_DrawLine = RENDER_EmptyLineHandler;
-	GFX_EndUpdate( 0 );
+	PlatformVideo_EndUpdate( 0 );
 	render.updating=false;
 	render.active=false;
 }
@@ -225,7 +225,7 @@ void RENDER_EndUpdate( bool abort ) {
 			flags, fps, (Bit8u *)&scalerSourceCache, (Bit8u*)&render.pal.rgb );
 	}
 	if ( render.scale.outWrite ) {
-		GFX_EndUpdate( abort? NULL : Scaler_ChangedLines );
+		PlatformVideo_EndUpdate( abort? NULL : Scaler_ChangedLines );
 		render.frameskip.hadSkip[render.frameskip.index] = 0;
 	} else {
 #if 0
@@ -235,10 +235,54 @@ void RENDER_EndUpdate( bool abort ) {
 			total += render.frameskip.hadSkip[i];
 		LOG_MSG( "Skipped frame %d %d", PIC_Ticks, (total * 100) / RENDER_SKIP_CACHE );
 #endif
-		if (RENDER_GetForceUpdate()) GFX_EndUpdate(0);
+		if (RENDER_GetForceUpdate()) {
+			/* The emulated screen had nothing to show, but something outside the
+			 * machine does: a frontend shader that animates, or the OSD overlays
+			 * a console frontend composites onto the presented picture. Presenting
+			 * needs a surface, and on a frame where no line changed the line
+			 * handlers never asked for one, so it has to be acquired here or the
+			 * present is dropped and the overlay is painted once and never
+			 * refreshed. Both frontends treat this as the ordinary start/end pair,
+			 * with no changed lines to copy.
+			 *
+			 * Taking the surface raises the frontends' "in update" state, which is
+			 * what makes their own teardown paths flush the frame before the
+			 * surfaces go away. The pointers are dropped again right after: no line
+			 * is drawn past this point, and leaving a non-NULL outWrite behind would
+			 * make the next RENDER_EndUpdate() take the normal branch. */
+			if (PlatformVideo_StartUpdate(render.scale.outWrite, render.scale.outPitch))
+				PlatformVideo_EndUpdate(0);
+			render.scale.outWrite = NULL;
+			render.scale.outPitch = 0;
+		}
 	}
 	render.frameskip.index = (render.frameskip.index + 1) & (RENDER_SKIP_CACHE - 1);
 	render.updating=false;
+}
+
+void RENDER_ResetSession(void) {
+	/* render.updating is raised by RENDER_StartUpdate() and lowered again by
+	 * the last line of RENDER_EndUpdate(), after PlatformVideo_EndUpdate() has
+	 * called the input pump. Leaving a session is done by throwing an int out of
+	 * that pump, so the throw unwinds straight past that line and the flag is
+	 * still up when the next session starts. `render` is a global in the BSS and
+	 * the exception takes the machine's Config with it, but not this: left true,
+	 * RENDER_StartUpdate() refuses the first frame of the next game at its very
+	 * first test, which is a session with sound and no picture - the launcher
+	 * screen stays on the display for as long as the game runs.
+	 *
+	 * Clearing the whole struct is what makes the next session a first one: the
+	 * scaler choice, the source geometry and the palette are all re-derived by
+	 * the RENDER_Init()/RENDER_SetSize() pair that runs again anyway, and
+	 * leaving any of them behind is what makes a stale pointer or a stale mode
+	 * decide what the new game is presented with. */
+	memset(&render, 0, sizeof(render));
+	/* active stays false until the next RENDER_SetSize() runs, which is what
+	 * keeps RENDER_StartUpdate() refusing frames until the machine has actually
+	 * picked a video mode. clearCache then repaints every line of that first
+	 * frame through the cache instead of trusting what the last game left in it. */
+	render.scale.clearCache	= true;
+	RENDER_DrawLine		= RENDER_EmptyLineHandler;
 }
 
 static Bitu MakeAspectTable(Bitu skip,Bitu height,double scaley,Bitu miny) {
@@ -393,28 +437,28 @@ forcenormal:
 	switch (render.src.bpp) {
 	case 8:
 			render.src.start = ( render.src.width * 1) / sizeof(Bitu);
-			if (gfx_flags & GFX_CAN_8)
-				gfx_flags |= GFX_LOVE_8;
+			if (gfx_flags & PLATFORM_VIDEO_CAN_8)
+				gfx_flags |= PLATFORM_VIDEO_LOVE_8;
 			else
-				gfx_flags |= GFX_LOVE_32;
+				gfx_flags |= PLATFORM_VIDEO_LOVE_32;
 			break;
 	case 15:
 			render.src.start = ( render.src.width * 2) / sizeof(Bitu);
-			gfx_flags |= GFX_LOVE_15;
-			gfx_flags = (gfx_flags & ~GFX_CAN_8) | GFX_RGBONLY;
+			gfx_flags |= PLATFORM_VIDEO_LOVE_15;
+			gfx_flags = (gfx_flags & ~PLATFORM_VIDEO_CAN_8) | PLATFORM_VIDEO_RGB_ONLY;
 			break;
 	case 16:
 			render.src.start = ( render.src.width * 2) / sizeof(Bitu);
-			gfx_flags |= GFX_LOVE_16;
-			gfx_flags = (gfx_flags & ~GFX_CAN_8) | GFX_RGBONLY;
+			gfx_flags |= PLATFORM_VIDEO_LOVE_16;
+			gfx_flags = (gfx_flags & ~PLATFORM_VIDEO_CAN_8) | PLATFORM_VIDEO_RGB_ONLY;
 			break;
 	case 32:
 			render.src.start = ( render.src.width * 4) / sizeof(Bitu);
-			gfx_flags |= GFX_LOVE_32;
-			gfx_flags = (gfx_flags & ~GFX_CAN_8) | GFX_RGBONLY;
+			gfx_flags |= PLATFORM_VIDEO_LOVE_32;
+			gfx_flags = (gfx_flags & ~PLATFORM_VIDEO_CAN_8) | PLATFORM_VIDEO_RGB_ONLY;
 			break;
 	}
-	gfx_flags=GFX_GetBestMode(gfx_flags);
+	gfx_flags=PlatformVideo_GetBestMode(gfx_flags);
 	if (!gfx_flags) {
 		if (!complexBlock && simpleBlock == &ScaleNormal1x) 
 			E_Exit("Failed to create a rendering output");
@@ -423,34 +467,34 @@ forcenormal:
 	}
 	width *= xscale;
 	Bitu skip = complexBlock ? 1 : 0;
-	if (gfx_flags & GFX_SCALING) {
+	if (gfx_flags & PLATFORM_VIDEO_SCALING) {
 		height = MakeAspectTable(skip, render.src.height, yscale, yscale );
 	} else {
-		if ((gfx_flags & GFX_CAN_RANDOM) && gfx_scaleh > 1) {
+		if ((gfx_flags & PLATFORM_VIDEO_CAN_RANDOM) && gfx_scaleh > 1) {
 			gfx_scaleh *= yscale;
 			height = MakeAspectTable( skip, render.src.height, gfx_scaleh, yscale );
 		} else {
-			gfx_flags &= ~GFX_CAN_RANDOM;		//Hardware surface when possible
+			gfx_flags &= ~PLATFORM_VIDEO_CAN_RANDOM;		//Hardware surface when possible
 			height = MakeAspectTable( skip, render.src.height, yscale, yscale);
 		}
 	}
 /* Setup the scaler variables */
 #if C_OPENGL
-	GFX_SetShader(render.shader_src);
+	PlatformVideo_SetShader(render.shader_src);
 #endif
-	gfx_flags=GFX_SetSize(width,height,gfx_flags,gfx_scalew,gfx_scaleh,&RENDER_CallBack);
-	if (gfx_flags & GFX_CAN_8)
+	gfx_flags=PlatformVideo_SetSize(width,height,gfx_flags,gfx_scalew,gfx_scaleh,&RENDER_CallBack);
+	if (gfx_flags & PLATFORM_VIDEO_CAN_8)
 		render.scale.outMode = scalerMode8;
-	else if (gfx_flags & GFX_CAN_15)
+	else if (gfx_flags & PLATFORM_VIDEO_CAN_15)
 		render.scale.outMode = scalerMode15;
-	else if (gfx_flags & GFX_CAN_16)
+	else if (gfx_flags & PLATFORM_VIDEO_CAN_16)
 		render.scale.outMode = scalerMode16;
-	else if (gfx_flags & GFX_CAN_32)
+	else if (gfx_flags & PLATFORM_VIDEO_CAN_32)
 		render.scale.outMode = scalerMode32;
 	else 
 		E_Exit("Failed to create a rendering output");
 	ScalerLineBlock_t *lineBlock;
-	if (gfx_flags & GFX_HARDWARE) {
+	if (gfx_flags & PLATFORM_VIDEO_HARDWARE) {
 #if RENDER_USE_ADVANCED_SCALERS>1
 		if (complexBlock) {
 			lineBlock = &ScalerCache;
@@ -517,18 +561,18 @@ forcenormal:
 	render.active=true;
 }
 
-static void RENDER_CallBack( GFX_CallBackFunctions_t function ) {
-	if (function == GFX_CallBackStop) {
+static void RENDER_CallBack(PlatformVideoCallbackAction action) {
+	if (action == PLATFORM_VIDEO_STOP) {
 		RENDER_Halt( );	
 		return;
-	} else if (function == GFX_CallBackRedraw) {
+	} else if (action == PLATFORM_VIDEO_REDRAW) {
 		render.scale.clearCache = true;
 		return;
-	} else if ( function == GFX_CallBackReset) {
-		GFX_EndUpdate( 0 );	
+	} else if (action == PLATFORM_VIDEO_RESET) {
+		PlatformVideo_EndUpdate( 0 );
 		RENDER_Reset();
 	} else {
-		E_Exit("Unhandled GFX_CallBackReset %d", function );
+		E_Exit("Unhandled video callback action %d", action);
 	}
 }
 
@@ -553,13 +597,15 @@ void RENDER_SetSize(Bitu width,Bitu height,Bitu bpp,float fps,double ratio,bool 
 	RENDER_Reset( );
 }
 
-extern void GFX_SetTitle(Bit32s cycles, int frameskip,bool paused);
+static void RENDER_UpdateTitle(Bit32s cycles, int frameskip, bool paused) {
+	Platform_UpdateStatus(cycles, frameskip, paused);
+}
 static void IncreaseFrameSkip(bool pressed) {
 	if (!pressed)
 		return;
 	if (render.frameskip.max<10) render.frameskip.max++;
 	LOG_MSG("Frame Skip at %d",render.frameskip.max);
-	GFX_SetTitle(-1,render.frameskip.max,false);
+	RENDER_UpdateTitle(-1,render.frameskip.max,false);
 }
 
 static void DecreaseFrameSkip(bool pressed) {
@@ -567,7 +613,7 @@ static void DecreaseFrameSkip(bool pressed) {
 		return;
 	if (render.frameskip.max>0) render.frameskip.max--;
 	LOG_MSG("Frame Skip at %d",render.frameskip.max);
-	GFX_SetTitle(-1,render.frameskip.max,false);
+	RENDER_UpdateTitle(-1,render.frameskip.max,false);
 }
 /* Disabled as I don't want to waste a keybind for that. Might be used in the future (Qbix)
 static void ChangeScaler(bool pressed) {
@@ -579,7 +625,7 @@ static void ChangeScaler(bool pressed) {
 		if(++render.scale.size > 3)
 			render.scale.size = 1;
 	}
-	RENDER_CallBack( GFX_CallBackReset );
+	RENDER_CallBack(PLATFORM_VIDEO_RESET);
 } */
 
 bool RENDER_GetForceUpdate(void) {
@@ -726,13 +772,13 @@ void RENDER_Init(Section * sec) {
 				  (render.shader_src != shader_src) ||
 #endif
 				   render.scale.forced))
-		RENDER_CallBack( GFX_CallBackReset );
+		RENDER_CallBack(PLATFORM_VIDEO_RESET);
 
 	if(!running) render.updating=true;
 	running = true;
 
 	MAPPER_AddHandler(DecreaseFrameSkip,MK_f7,MMOD1,"decfskip","Dec Fskip");
 	MAPPER_AddHandler(IncreaseFrameSkip,MK_f8,MMOD1,"incfskip","Inc Fskip");
-	GFX_SetTitle(-1,render.frameskip.max,false);
+	RENDER_UpdateTitle(-1,render.frameskip.max,false);
 }
 

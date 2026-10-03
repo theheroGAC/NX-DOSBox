@@ -23,7 +23,6 @@
 #include "vga.h"
 #include "debug.h"
 #include "cpu.h"
-#include "video.h"
 #include "pic.h"
 
 #define crtc(blah) vga.crtc.blah

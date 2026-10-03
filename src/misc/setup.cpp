@@ -807,19 +807,18 @@ void Section::AddInitFunction(SectionFunction func,bool canchange) {
 
 void Section::AddDestroyFunction(SectionFunction func,bool canchange) {
 	destroyfunctions.push_front(Function_wrapper(func,canchange));
-}
-
-
-void Section::ExecuteInit(bool initall) {
+}void Section::ExecuteInit(bool initall) {
 	typedef std::list<Function_wrapper>::iterator func_it;
-	for (func_it tel = initfunctions.begin(); tel != initfunctions.end(); ++tel) {
+	for (func_it tel = initfunctions.begin(); tel!=initfunctions.end(); ++tel) {
+		/* A section may be registered without an init function (the console
+		 * front ends do that for the host section), so skip the empty slot
+		 * instead of calling through a null pointer. */
+		if (!(*tel).function) continue;
 		if (initall || (*tel).canchange) (*tel).function(this);
 	}
-}
-
-void Section::ExecuteDestroy(bool destroyall) {
+}void Section::ExecuteDestroy(bool destroyall) {
 	typedef std::list<Function_wrapper>::iterator func_it;
-	for (func_it tel = destroyfunctions.begin(); tel != destroyfunctions.end(); ) {
+	for (func_it tel = destroyfunctions.begin(); tel!=destroyfunctions.end(); ) {
 		if (destroyall || (*tel).canchange) {
 			(*tel).function(this);
 			tel = destroyfunctions.erase(tel); //Remove destroyfunction once used

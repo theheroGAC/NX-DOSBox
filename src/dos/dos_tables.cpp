@@ -41,6 +41,32 @@ static Bitu call_casemap;
 
 static Bit16u dos_memseg=DOS_PRIVATE_SEGMENT;
 
+/* Returns the private segment range to its start, for a machine that is about
+ * to be built.
+ *
+ * dos_memseg is a file static and DOS_GetMemory() only ever moves it up, so
+ * without this it is a budget that a front end pays once per machine and never
+ * gets back. A desktop starts the machine once and exits, and never notices; a
+ * front end that restarts the machine for every game the user picks - which is
+ * what this console port does - leaks the whole DOS_SetupTables() range (73
+ * pages), the first shell's 128 page stack, the mouse and XMS hook pages and two
+ * pages per mounted drive, every single time. That is roughly 200 of the 2048
+ * pages the range holds, so the tenth game crossed the end of it and DOS_GetMemory
+ * answered with E_Exit("DOS:Not enough memory for internal tables") - a fatal
+ * error with no way back to the launcher, and the tables themselves were rebuilt
+ * from scratch for the new machine anyway.
+ *
+ * This has to run before any module asks for a page, and the mouse and the XMS
+ * hook ask before the DOS module is even constructed, so it cannot live in
+ * DOS_SetupTables(). DOSBOX_RealInit() is the first init function of the first
+ * config section, which makes it the one place that is guaranteed to be early
+ * enough. The allocation order is the same for every machine, so a segment
+ * cached by one of the "allocate once" callers still names the same page it did
+ * last time. */
+void DOS_ResetPrivateMemory(void) {
+	dos_memseg = DOS_PRIVATE_SEGMENT;
+}
+
 Bit16u DOS_GetMemory(Bit16u pages) {
 	if ((Bitu)pages+(Bitu)dos_memseg>=DOS_PRIVATE_SEGMENT_END) {
 		E_Exit("DOS:Not enough memory for internal tables");

@@ -38,7 +38,15 @@ public:
 //	static void CycleDisk(bool pressed);
 	static void CycleDisks(int drive, bool notify);
 	static void CycleAllDisks(void);
+	/* How many images the drive was mounted with. More than one means a set:
+	 * a floppy game that came as disk 1 to disk 6. The BIOS needs this to
+	 * answer a media change request from the guest. */
+	static int DiskCount(int drive) {
+		return (drive >= 0 && drive < DOS_DRIVES)
+			? (int)driveInfos[drive].disks.size() : 0;
+	}
 	static void Init(Section* sec);
+	static void ShutDown(void);
 	
 private:
 	static struct DriveInfo {
@@ -152,6 +160,7 @@ class imageDisk;
 class fatDrive : public DOS_Drive {
 public:
 	fatDrive(const char * sysFilename, Bit32u bytesector, Bit32u cylsector, Bit32u headscyl, Bit32u cylinders, Bit32u startSector);
+	virtual ~fatDrive();
 	virtual bool FileOpen(DOS_File * * file,char * name,Bit32u flags);
 	virtual bool FileCreate(DOS_File * * file,char * name,Bit16u attributes);
 	virtual bool FileUnlink(char * name);

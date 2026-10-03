@@ -24,6 +24,8 @@
 #include "vga.h"
 #include "paging.h"
 #include "pic.h"
+#include "render.h"
+#include "savestate.h"
 #include "inout.h"
 #include "setup.h"
 
@@ -43,6 +45,144 @@
 #endif
 
 #define CHECKED3(v) ((v)&(vga.vmemwrap-1))
+
+/* ------------------------------------------------------------- save state
+ *
+ * What the video card contributes to a snapshot is the two memories the
+ * program writes through and the register files it writes; everything the card
+ * keeps as a consequence of those - the page handlers, the bank window, the
+ * line geometry, the draw function, the font tables, the palette the port
+ * shows - is rebuilt from the restored registers below, the same way the card
+ * rebuilds it after the writes that produced them. Trusting the derived half
+ * would be trusting a file to describe a machine it was not taken on.
+ *
+ * The register files carry no pointers, so they travel as they sit in memory.
+ * The two exceptions are handled by hand: vga.tandy's draw_base/mem_base are
+ * recomputed by VGA_SetupHandlers, and the DAC lookup table is rebuilt from the
+ * colour entries rather than read back from the file.
+ */
+
+/* The size of the linear memory allocation, the same number VGA_SetupMemory
+ * asks for: the video memory, never less than 512 KB, plus one scan line of
+ * slack for the drawing code. */
+static Bit32u SaveState_VGA_LinearSize(void) {
+	Bit32u size = vga.vmemsize;
+	if (size < 512*1024) size = 512*1024;
+	return size + 2048;
+}
+
+/* Everything in the Tandy/pcjr register block except the two pointers into
+ * the video memory, which the memory setup above owns. */
+static void SaveState_VGA_Tandy(SaveState &state) {
+	state.Num(vga.tandy.pcjr_flipflop);
+	state.Num(vga.tandy.mode_control);
+	state.Num(vga.tandy.color_select);
+	state.Num(vga.tandy.disp_bank);
+	state.Num(vga.tandy.reg_index);
+	state.Num(vga.tandy.gfx_control);
+	state.Num(vga.tandy.palette_mask);
+	state.Num(vga.tandy.extended_ram);
+	state.Num(vga.tandy.border_color);
+	state.Num(vga.tandy.line_mask);
+	state.Num(vga.tandy.line_shift);
+	state.Num(vga.tandy.draw_bank);
+	state.Num(vga.tandy.mem_bank);
+	state.Num(vga.tandy.addr_mask);
+}
+
+static void SaveState_VGA(SaveState &state) {
+	state.Enum(vga.mode);
+	state.Num(vga.misc_output);
+	state.Num(vga.vmemwrap);
+	state.Num(vga.vmemsize);
+
+	/* vga.config keeps the values the sequencer and the graphics controller
+	 * derive from their own registers (the expanded masks the memory writes
+	 * go through), so it travels with them instead of being recalculated from
+	 * a register write that never happens on load. */
+	state.Pod(vga.internal);
+	state.Pod(vga.config);
+	state.Pod(vga.seq);
+	state.Pod(vga.attr);
+	state.Pod(vga.crtc);
+	state.Pod(vga.gfx);
+	state.Pod(vga.dac);
+	state.Pod(vga.s3);
+	state.Pod(vga.svga);
+	state.Pod(vga.herc);
+	state.Pod(vga.other);
+	SaveState_VGA_Tandy(state);
+
+	/* A text screen is the character set plus the cursor, and a program that
+	 * installs its own font expects it to still be there after a load. */
+	state.Bytes(vga.draw.font, sizeof(vga.draw.font));
+	state.Num(vga.draw.cursor.address);
+	state.Num(vga.draw.cursor.sline);
+	state.Num(vga.draw.cursor.eline);
+	state.Num(vga.draw.cursor.count);
+	state.Num(vga.draw.cursor.delay);
+	state.Num(vga.draw.cursor.enabled);
+	state.Num(vga.draw.blinking);
+	state.Bool(vga.draw.char9dot);
+
+	/* The memories, with the size of the linear one written in front: the
+	 * header already refused a state taken on a machine with other video
+	 * memory, this is the cheap second guard that keeps the copy inside the
+	 * buffer the machine allocated. */
+	Bit32u linear_size = SaveState_VGA_LinearSize();
+	state.Num(linear_size);
+	if (!state.Saving() && linear_size != SaveState_VGA_LinearSize()) {
+		state.Fail("the state holds a %u KB linear frame buffer, this machine has %u KB",
+		           (unsigned)(linear_size / 1024), (unsigned)(SaveState_VGA_LinearSize() / 1024));
+		return;
+	}
+	state.Bytes(vga.mem.linear, linear_size);
+	/* The expanded copy the renderer reads in the planar modes is built by the
+	 * same writes that fill the linear memory, so it has to travel with it. */
+	state.Bytes(vga.fastmem, (vga.vmemsize << 1) + 4096);
+
+	if (state.Saving()) return;
+
+	/* Rebuild the two things the machine derives from the colour entries: the
+	 * 16 bit lookup table used by the 16 bpp drawing paths, and the palette the
+	 * port shows. This is the arithmetic of VGA_DAC_SendColor in vga_dac.cpp,
+	 * which is static, so it cannot be called from here. */
+	for (Bitu i = 0; i < 256; i++) {
+		const Bitu src = i & vga.dac.pel_mask;
+		const Bit8u red = vga.dac.rgb[src].red;
+		const Bit8u green = vga.dac.rgb[src].green;
+		const Bit8u blue = vga.dac.rgb[src].blue;
+		var_write(&vga.dac.xlat16[i], (Bit16u)(((blue >> 1) & 0x1f) |
+		                                     ((Bit16u)(green & 0x3f) << 5) |
+		                                     ((Bit16u)((red >> 1) & 0x1f) << 11)));
+	}
+	/* An 8 bit mode reaches its 256 entries directly, every other mode reaches
+	 * the first 16 through the attribute combine table. */
+	const bool direct = (vga.mode == M_VGA || vga.mode == M_LIN8);
+	const Bitu entries = direct ? 256 : 16;
+	for (Bitu i = 0; i < entries; i++) {
+		const Bitu src = direct ? (i & vga.dac.pel_mask) : vga.dac.combine[i];
+		const Bit8u red = vga.dac.rgb[src].red;
+		const Bit8u green = vga.dac.rgb[src].green;
+		const Bit8u blue = vga.dac.rgb[src].blue;
+		/* The port wants eight bit channels, the DAC holds six. */
+		RENDER_SetPal((Bit8u)i, (Bit8u)((red << 2) | (red >> 4)),
+		              (Bit8u)((green << 2) | (green >> 4)),
+		              (Bit8u)((blue << 2) | (blue >> 4)));
+	}
+
+	/* Bank window and page handlers first, because the drawing setup and the
+	 * renderer both read what they leave behind. */
+	VGA_SetupHandlers();
+	/* Then the whole of the drawing state. Zeroing the vertical total makes
+	 * VGA_SetupDrawing see a timing change and arm the vertical timer again,
+	 * which is what a mode change does; without it a load could keep the frame
+	 * timing of the machine the snapshot was taken from. */
+	vga.draw.delay.vtotal = 0.0;
+	VGA_SetupDrawing(0);
+}
+
+SAVESTATE_BLOCK(vga, "VGA ", "video card", SaveState_VGA);
 #define CHECKED4(v) ((v)&((vga.vmemwrap>>2)-1))
 
 

@@ -16,6 +16,7 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
+/* Modified for the standalone platform service boundary, 2026. */
 
 #include <stdlib.h>
 #include <stdarg.h>
@@ -25,7 +26,6 @@
 #include "dosbox.h"
 #include "debug.h"
 #include "cpu.h"
-#include "video.h"
 #include "pic.h"
 #include "cpu.h"
 #include "callback.h"
@@ -145,7 +145,7 @@ static Bitu Normal_Loop(void) {
 			if (DEBUG_ExitLoop()) return 0;
 #endif
 		} else {
-			GFX_Events();
+			Platform_PumpEvents();
 			if (ticksRemain>0) {
 				TIMER_AddTick();
 				ticksRemain--;
@@ -155,7 +155,7 @@ static Bitu Normal_Loop(void) {
 }
 
 //For trying other delays
-#define wrap_delay(a) SDL_Delay(a)
+#define wrap_delay(a) Platform_Delay(a)
 
 void increaseticks() { //Make it return ticksRemain and set it in the function above to remove the global variable.
 	if (GCC_UNLIKELY(ticksLocked)) { // For Fast Forward Mode
@@ -346,8 +346,23 @@ static void DOSBOX_RealInit(Section * sec) {
 	Section_prop * section=static_cast<Section_prop *>(sec);
 	/* Initialize some dosbox internals */
 
+	/* Before anything else, and this is the first init function of the first
+	 * config section so nothing has asked for one of these pages yet. The DOS
+	 * module hands out a private segment range for its internal tables, and the
+	 * mouse, the XMS hook and the first shell all take pages from it before the
+	 * DOS module itself is constructed. That range is rebuilt for every machine,
+	 * so a front end that starts the machine once per game - this console port
+	 * does, for every folder the launcher hands it - drained it after about ten
+	 * games and the next one died in DOS_GetMemory() with "Not enough memory for
+	 * internal tables". A desktop builds one machine and exits, which is why the
+	 * range was never given back before. */
+	DOS_ResetPrivateMemory();
+
 	ticksRemain=0;
 	ticksLast=GetTicks();
+	ticksAdded = 0;
+	ticksDone = 0;
+	ticksScheduled = 0;
 	ticksLocked = false;
 	DOSBOX_SetLoop(&Normal_Loop);
 	MSG_Init(section);

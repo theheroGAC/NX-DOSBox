@@ -692,8 +692,16 @@ bool fatDrive::allocateCluster(Bit32u useCluster, Bit32u prevCluster) {
 	return true;
 }
 
+fatDrive::~fatDrive() {
+	if (loadedDisk) {
+		delete loadedDisk;
+		loadedDisk = NULL;
+	}
+}
+
 fatDrive::fatDrive(const char *sysFilename, Bit32u bytesector, Bit32u cylsector, Bit32u headscyl, Bit32u cylinders, Bit32u startSector) {
 	created_successfully = true;
+	loadedDisk = NULL;
 	FILE *diskfile;
 	Bit32u filesize;
 	bool is_hdd;
@@ -706,6 +714,9 @@ fatDrive::fatDrive(const char *sysFilename, Bit32u bytesector, Bit32u cylsector,
 	}
 
 	diskfile = fopen_wrap(sysFilename, "rb+");
+	if(!diskfile) {
+		diskfile = fopen_wrap(sysFilename, "rb");
+	}
 	if(!diskfile) {created_successfully = false;return;}
 	fseek(diskfile, 0L, SEEK_END);
 	filesize = (Bit32u)ftell(diskfile) / 1024L;

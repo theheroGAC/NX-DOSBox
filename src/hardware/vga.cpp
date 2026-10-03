@@ -19,7 +19,6 @@
 
 #include "dosbox.h"
 //#include "setup.h"
-#include "video.h"
 #include "pic.h"
 #include "vga.h"
 
